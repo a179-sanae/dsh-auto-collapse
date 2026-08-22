@@ -341,7 +341,7 @@ await scenario('工具摘要忽略 summarySuffix', async () => {
   cleanup()
 })
 
-await scenario('Deep sleeping 只改当前 flow', async () => {
+await scenario('Deep sleeping... 只改当前 flow', async () => {
   const { env, document, flow, register, cleanup } = boot()
   const external = el('div', { role: 'status', text: 'Deep diving outside' }, document.body)
   const active = el('div', { role: 'status', text: 'Deep diving active' }, flow)
@@ -349,7 +349,7 @@ await scenario('Deep sleeping 只改当前 flow', async () => {
   register()
   await env.tick()
   assert(external.textContent === 'Deep diving outside', 'flow 外状态文案不变')
-  assert(active.textContent === 'Deep sleeping active', '当前 flow 状态文案替换')
+  assert(active.textContent === 'Deep sleeping... active', '当前 flow 状态文案替换')
   cleanup()
   assert(active.textContent === 'Deep diving active', 'stop() 恢复当前 flow 原文')
 })

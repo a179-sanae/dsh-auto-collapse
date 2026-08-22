@@ -13,8 +13,9 @@
  *     leading 回到静态色块；出错 → 红色，中断 → 琥珀。
  *
  * 另外把官方 ChatView 尾部的运行状态行文字 "Deep diving..." 替换为
- * "Deep sleeping..."（始终生效；流光特效在 CSS 上，替换文本节点不影响）。
- * React 重渲染会恢复原文，pass() 每轮自愈改回。
+ * 可配置的状态提示词（默认 "Deep sleeping..."；流光特效在 CSS 上，
+ * 替换文本节点不影响）。React 重渲染会恢复原文，pass() 每轮自愈改回。
+ * 设置为空时不替换，等价于恢复官方 "Deep diving..."。
  *
  * 点击一行展开，再点收起；折叠态下若有行被选中（详情联动）自动展开。
  *
@@ -33,6 +34,9 @@
  */
 
 const STYLE_ID = 'dshcf-style'
+
+/** 默认状态提示词，与设置在设置页里展示的默认值保持一致。 */
+const DEFAULT_STATUS_TEXT = 'Deep sleeping...'
 
 /** 显示动画参数（issue #2 区间 150–250ms）。 */
 const ANIM_DURATION_MS = 180
@@ -433,8 +437,10 @@ export class FoldController {
   /** 插件改写 display 前的精确原值；受控集合用于分类漂移和 stop() 恢复。 */
   private originalDisplay = new WeakMap<HTMLElement, string>()
   private controlledDisplay = new Set<HTMLElement>()
-  /** 被改写为 Deep sleeping 的原生状态文本，卸载时按节点恢复。 */
+  /** 被改写为状态提示词的原生状态文本，卸载时按节点恢复。 */
   private turnStatusTexts = new Map<Text, string>()
+  /** 当前状态提示词读取器；返回空串时插件不替换状态行。 */
+  private statusTextProvider: () => string | undefined
   /** 正文判定缓存（消息元素 → 有无正文）：流式期间只有被 mutation 命中的
    * 消息失效重算，历史消息跨 pass 复用，避免每帧全量 TreeWalker。 */
   private bodyTextCache = new WeakMap<HTMLElement, boolean>()
@@ -445,6 +451,16 @@ export class FoldController {
   private pendingAnims = new Map<HTMLElement, PendingAnim>()
   /** 手势点击记入的一次性可动画 key；pass 消费后清除（触发门控）。 */
   private animatableKeys = new Set<string>()
+
+  constructor(statusTextProvider?: () => string | undefined) {
+    this.statusTextProvider = statusTextProvider ?? (() => DEFAULT_STATUS_TEXT)
+  }
+
+  /** 设置变更后重跑一轮，让状态提示词立即生效。 */
+  refresh(): void {
+    this.schedule()
+  }
+
   start(): void {
     if (this.disposed) return
     injectStyle()
@@ -671,7 +687,12 @@ export class FoldController {
     for (const [el] of [...this.pendingAnims]) {
       if (!el.isConnected) this.pendingAnims.delete(el)
     }
-    replaceTurnStatus(flow, this.turnStatusTexts)
+    const statusText = this.statusTextProvider()
+    if (statusText === undefined || statusText === '') {
+      restoreTurnStatus(this.turnStatusTexts)
+    } else {
+      replaceTurnStatus(flow, this.turnStatusTexts, statusText)
+    }
   }
 
   /** flow 元素变化即视为会话切换：完整恢复旧 flow，再从新 DOM 重建。 */
@@ -2159,10 +2180,12 @@ function injectStyle(): void {
 }
 
 /** 官方 ChatView 尾部的运行状态行：`<div role="status">Deep diving...`。
- * 把其中的文本节点 "Deep diving..." 替换为 "Deep sleeping..."，流光
+ * 把其中的文本节点 "Deep diving..." 替换为自定义状态提示词，流光
  * 特效在 CSS 上（dsh-turn-status-shimmer），不受影响。React 重渲染会
- * 恢复原文，pass() 每轮自愈。 */
-function replaceTurnStatus(flow: HTMLElement, originals: Map<Text, string>): void {
+ * 恢复原文，pass() 每轮自愈。
+ * @param statusText - 完整替换文案；调用方已排除空值。
+ */
+function replaceTurnStatus(flow: HTMLElement, originals: Map<Text, string>, statusText: string): void {
   const statuses = flow.matches('[role="status"]')
     ? [flow, ...flow.querySelectorAll<HTMLElement>('[role="status"]')]
     : [...flow.querySelectorAll<HTMLElement>('[role="status"]')]
@@ -2170,7 +2193,9 @@ function replaceTurnStatus(flow: HTMLElement, originals: Map<Text, string>): voi
     for (const node of status.childNodes) {
       if (node instanceof Text && node.data.includes('Deep diving')) {
         if (!originals.has(node)) originals.set(node, node.data)
-        const next = node.data.replace('Deep diving', 'Deep sleeping')
+        // 同时吃掉原生三段点号，避免用户填入 "Deep sleeping..." 时
+        // 与原文尾部 "..." 叠成双省略号。
+        const next = node.data.replace(/Deep diving[.…]*/, statusText)
         // 写入守卫：值不变不赋值。否则每轮 pass 的赋值会产生
         // characterData mutation，在 characterData 观察下自激循环。
         if (node.data !== next) node.data = next
@@ -2182,7 +2207,8 @@ function replaceTurnStatus(flow: HTMLElement, originals: Map<Text, string>): voi
 /** 只恢复仍保留插件改写文案的节点，避免覆盖宿主之后的状态更新。 */
 function restoreTurnStatus(originals: Map<Text, string>): void {
   for (const [node, original] of originals) {
-    if (node.isConnected && node.data.includes('Deep sleeping')) node.data = original
+    // 只要仍是插件写入后的文本（与原值不同）就还原；自定义文案也不要求含 "Deep"。
+    if (node.isConnected && node.data !== original) node.data = original
   }
   originals.clear()
 }

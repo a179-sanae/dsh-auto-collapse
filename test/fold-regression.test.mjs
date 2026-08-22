@@ -10,7 +10,7 @@
  *  4. 竞态：turn-tail 先于工具 done 到达 → pending → done 后恰一行已处理。
  *  5. 宿主被替换（极端重渲染）→ chip 自愈、无重复行、无残留。
  *  6. 切会话（flow 整体替换）→ 无串味、无残留搬移。
- *  7. stop() 完整性：全部还原、无残留节点、Deep sleeping 还原。
+ *  7. stop() 完整性：全部还原、无残留节点、状态提示词还原。
  *  8. 纯文本回合（无 think/tool）不生成一级行（既有产品语义确认）。
  *
  * 用法：node test/fold-regression.test.mjs
@@ -193,7 +193,7 @@ function addBodyText(seatEl, text) {
   const chips = () => flow.querySelectorAll('.dshcf-chip')
   assert(chips().length === 0, '完成态 chip 未创建（整块收进已处理行）', `chips=${chips().length}`)
   const st = flow.querySelector('[role="status"]')
-  assert(st.textContent.includes('Deep sleeping'), '状态行文本替换为 Deep sleeping')
+  assert(st.textContent.includes('Deep sleeping...'), '状态行文本替换为 Deep sleeping...')
   // 一级展开 → 工具组合并为恰一个 chip（TurnStatus 未断开合并）
   const row = flow.querySelector('.dshcf-processed')
   row.dispatchEvent('click')
@@ -365,7 +365,7 @@ function addBodyText(seatEl, text) {
   assert(flow.querySelectorAll('.dshcf-chip').length === 0, 'chip 全部移除')
   assert(flow.querySelectorAll('.dshcf-processed').length === 0, '已处理行移除')
   assert(document.getElementById('dshcf-style') === null, 'style 移除')
-  assert(status.textContent.includes('Deep diving'), 'Deep sleeping 还原为 Deep diving')
+  assert(status.textContent.includes('Deep diving'), 'Deep sleeping... 还原为 Deep diving')
   env.clearTimers()
 }
 

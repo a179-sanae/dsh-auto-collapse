@@ -21,6 +21,7 @@ const CLIENT_OPTIONS = {
   platform: 'browser',
   target: 'es2020',
   outfile: 'lib/client.js',
+  external: ['react'],
   banner: { js: 'window.__ModuleLoader__.load({id:"dsh-auto-collapse",factory:function(require){' },
   footer: { js: 'return __dshcfBundle;}});' },
 }
