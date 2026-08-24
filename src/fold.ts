@@ -42,6 +42,16 @@ const DEFAULT_STATUS_TEXT = 'Deep sleeping...'
 const ANIM_DURATION_MS = 180
 const ANIM_EASING = 'ease-out'
 
+/** display 所有权哨兵（内联自定义属性）：插件接管元素显示时盖上，恢复时清除。
+ * 外部对 style 的属性级改写（el.style.display = …）不会动它，由 written 值比对
+ * 兜底；整体改写（cssText / setAttribute('style')）会抹掉它，由哨兵缺失检测
+ * 兜底——两层合起来覆盖外部介入的两种形态（issue #11 Bug A）。 */
+const DISPLAY_OWNED_PROP = '--dshcf-display-owned'
+/** 外部显示变更对账周期（issue #11 Bug B）：style 不进 attributeFilter
+ * （插件自身大量直写 style 会自激），改为低频自重排兜底，保证任何外部
+ * 隐藏/恢复最迟一个周期被 pass 收敛。可通过 options.auditIntervalMs 调整。 */
+const AUDIT_TICK_MS = 1000
+
 /** 工具名（data-tool 属性）→ 展示名，与官方 tool-call-model 的标题对齐。 */
 const TOOL_LABELS: Record<string, string> = {
   bash: 'Bash',
@@ -437,7 +447,9 @@ export class FoldController {
   /** 插件改写 display 前的精确原值；受控集合用于分类漂移和 stop() 恢复。 */
   private originalDisplay = new WeakMap<HTMLElement, string>()
   private controlledDisplay = new Set<HTMLElement>()
-  /** 被改写为状态提示词的原生状态文本，卸载时按节点恢复。 */
+  /** 元素 → 插件最后确保的 display 值：恢复前与当前内联值比对，漂移即视为
+   * 外部介入（镜像 turnStatusTexts 的 original/written 双快照守卫，issue #11）。 */
+  private writtenDisplay = new WeakMap<HTMLElement, string>()
   /** 被改写为状态提示词的原生状态文本：original = 宿主原文（卸载还原用），
    * written = 插件最后一次写入的值（仅当节点仍等于它时才还原，避免覆盖
    * 宿主在插件写入之后的状态更新）。 */
@@ -457,10 +469,18 @@ export class FoldController {
   /** segment 点击时只让点击前已存在的 block 播放 reveal；流式中新出现的
    * 临时分裂块直接显示，避免分类收敛时留下半透明 stale chip。 */
   private animatableSegmentBlocks = new Map<string, ReadonlySet<string>>()
-
-  constructor(statusTextProvider?: () => string | undefined) {
-    this.statusTextProvider = statusTextProvider ?? (() => DEFAULT_STATUS_TEXT)
+  /** 外部变更对账定时器句柄（自重排 setTimeout 链，见 armAuditLoop）。 */
+  private auditTimer: number = 0
+  /** 回到前台立即补一轮对账；后台 tab 由 document.hidden 门控跳过。 */
+  private readonly onVisibilityChange = (): void => {
+    if (typeof document === 'undefined' || document.hidden !== true) this.schedule()
   }
+
+  constructor(statusTextProvider?: () => string | undefined, options?: { auditIntervalMs?: number }) {
+    this.statusTextProvider = statusTextProvider ?? (() => DEFAULT_STATUS_TEXT)
+    this.auditIntervalMs = options?.auditIntervalMs ?? AUDIT_TICK_MS
+  }
+  private readonly auditIntervalMs: number
 
   /** 设置变更后重跑一轮，让状态提示词立即生效。 */
   refresh(): void {
@@ -489,16 +509,49 @@ export class FoldController {
         // 不会自激。
         characterData: true,
       })
+      this.armAuditLoop()
       this.schedule()
     } catch (error) {
       this.reportError(error)
       throw error
     }
   }
+
+  /** 外部显示变更对账循环（issue #11 Bug B）：外部对宿主行的 style 写入不产生
+   * observer record（style 不在 attributeFilter 内，监听会因插件自身直写 style
+   * 自激），改用低频自重排兜底——任何外部隐藏/恢复最迟一个周期被 pass 收敛；
+   * 后台 tab 由 document.hidden 门控跳过，回前台由 visibilitychange 立即补一轮。
+   * 用自重排 setTimeout 链而非 setInterval：与 schedule 的兜底定时器同源，
+   * 测试桩 clearTimers 后链条自然熄灭。 */
+  private armAuditLoop(): void {
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', this.onVisibilityChange)
+    }
+    this.rearmAudit()
+  }
+
+  private rearmAudit(): void {
+    if (this.disposed || this.auditTimer !== 0) return
+    this.auditTimer = setTimeout(() => {
+      this.auditTimer = 0
+      if (this.disposed) return
+      if (typeof document !== 'undefined' && document.hidden === true) {
+        this.rearmAudit()
+        return
+      }
+      this.schedule()
+      this.rearmAudit()
+    }, this.auditIntervalMs)
+  }
+
   stop(): void {
     this.disposed = true
     if (this.raf !== 0) cancelAnimationFrame(this.raf)
     if (this.timer !== 0) clearTimeout(this.timer)
+    if (this.auditTimer !== 0) { clearTimeout(this.auditTimer); this.auditTimer = 0 }
+    if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+      document.removeEventListener('visibilitychange', this.onVisibilityChange)
+    }
     this.observer?.disconnect()
     this.switchFlow(null)
     removeStyle()
@@ -1287,6 +1340,24 @@ export class FoldController {
     if (chip.style.marginBottom !== '') chip.style.marginBottom = ''
   }
 
+  /** 外部介入检测（issue #11 Bug A）：当前内联值 ≠ 插件最后确保值，或所有权
+   * 哨兵被 style 整体改写抹除。返回 true 时调用方放弃本次写回并交还账本——
+   * 属性级改写由值比对捕获，整体改写（cssText / setAttribute('style')）由
+   * 哨兵缺失捕获，两层合起来覆盖外部介入的两种形态。 */
+  private displayForeign(el: HTMLElement): boolean {
+    const written = this.writtenDisplay.get(el)
+    if (written === undefined) return false
+    return el.style.getPropertyValue(DISPLAY_OWNED_PROP) === '' || el.style.display !== written
+  }
+
+  /** 清空单个元素的显示账本（三账本 + 所有权哨兵）。 */
+  private releaseDisplayLedger(el: HTMLElement): void {
+    this.originalDisplay.delete(el)
+    this.writtenDisplay.delete(el)
+    this.controlledDisplay.delete(el)
+    el.style.removeProperty(DISPLAY_OWNED_PROP)
+  }
+
   /** 返回 true 表示启动了渐隐动画（调用方可据此决定内部元素的处置）。
    * settle 在渐隐自然结束时调用（onfinish 链；反向取消不触发）。 */
   private hideElement(el: HTMLElement, desired: Set<HTMLElement>, animate = false, settle?: () => void): boolean {
@@ -1305,7 +1376,15 @@ export class FoldController {
     // 淡入呈现。否则「内部瞬隐 → 宿主高度骤缩」会在渐隐起步产生跳变；
     // 意图已登记，不会被 restoreUnusedDisplays 反向恢复，结算后由后续 pass 处理。
     if (this.hasAnimatingAncestor(el)) return false
-    if (!this.originalDisplay.has(el)) this.originalDisplay.set(el, el.style.display)
+    // 账本登记（含外部接管重同步，issue #11）：首次接管记录精确原值；若账本
+    // 仍在但元素已被外部整体改写（哨兵被抹）或改值，说明插件控制间隙发生了
+    // 接管——以外部当前值为新「原值」基准重新登记（后写者语义：还原时归还
+    // 外部写入前的状态），避免恢复路径用过期快照覆盖外部事实。
+    if (!this.originalDisplay.has(el) || this.displayForeign(el)) {
+      this.originalDisplay.set(el, el.style.display)
+      this.writtenDisplay.set(el, el.style.display)
+      el.style.setProperty(DISPLAY_OWNED_PROP, '1')
+    }
     this.controlledDisplay.add(el)
     if (el.style.display === 'none') return false
     // 手势收起 = 渐隐（镜像 reveal 的 fade），淡完 onfinish 瞬切隐藏。
@@ -1316,6 +1395,7 @@ export class FoldController {
       return true
     }
     el.style.display = 'none'
+    this.writtenDisplay.set(el, 'none')
     return false
   }
 
@@ -1328,18 +1408,27 @@ export class FoldController {
       this.cancelPendingSync(el)
     }
     if (!this.originalDisplay.has(el)) return
+    // 外部介入守卫（issue #11 Bug A，镜像 turnStatusTexts 的 written 比对）：
+    // 当前内联值不再是插件最后确保的值，或所有权哨兵被 style 整体改写抹掉，
+    // 说明第三方已接管该元素的显示——尊重现状，放弃恢复并交还账本，等后续
+    // pass 按外部事实重分类。用户手势展开同受此守卫：被外部隐藏的轮次不因
+    // 点击历史折叠行而复活。
+    if (this.displayForeign(el)) {
+      this.releaseDisplayLedger(el)
+      return
+    }
     const original = this.originalDisplay.get(el) as string
     // 祖先 seat 在途动画时跳过后代申请（防双重淡入/淡出与高度锁竞争）：
     // 后代随祖先的 overflow 裁剪与整体过渡呈现，自身走瞬变终态。
     if (!animate || !this.canAnimate(el) || this.hasAnimatingAncestor(el)) {
       if (el.style.display !== original) el.style.display = original
-      this.originalDisplay.delete(el)
-      this.controlledDisplay.delete(el)
+      this.releaseDisplayLedger(el)
       return
     }
     // 动画路径（展开）：占位即刻出现，内容淡入 + 微位移。账本双条目保持到
     // onfinish 对齐（终态可见 = 双删除，镜像 restoreElement 契约）。
     if (el.style.display !== original) el.style.display = original
+    this.writtenDisplay.set(el, original)
     this.startReveal(el)
   }
 
@@ -1366,8 +1455,7 @@ export class FoldController {
     anim.onfinish = () => {
       if (this.pendingAnims.get(el) !== record) return
       this.pendingAnims.delete(el)
-      this.originalDisplay.delete(el)
-      this.controlledDisplay.delete(el)
+      this.releaseDisplayLedger(el)
       this.schedule()
     }
     anim.oncancel = () => {
@@ -1422,7 +1510,16 @@ export class FoldController {
     anim.onfinish = () => {
       if (this.pendingAnims.get(el) !== record) return
       this.pendingAnims.delete(el)
+      // 渐隐期间被外部接管（哨兵被抹/值被改）：不写终态、不执行 settle，
+      // 账本交还外部，由后续 pass 按新事实重分类（issue #11 Bug A）。
+      if (this.displayForeign(el)) {
+        this.releaseDisplayLedger(el)
+        this.schedule()
+        anim.cancel()
+        return
+      }
       if (el.style.display !== 'none') el.style.display = 'none'
+      this.writtenDisplay.set(el, 'none')
       // settle：渐隐自然结束后的延迟清理（如 DOM 移除）；反向取消不执行。
       settle?.()
       anim.cancel()
@@ -1460,6 +1557,7 @@ export class FoldController {
     for (const el of [...this.controlledDisplay]) this.restoreElement(el)
     this.controlledDisplay.clear()
     this.originalDisplay = new WeakMap<HTMLElement, string>()
+    this.writtenDisplay = new WeakMap<HTMLElement, string>()
   }
 }
 
