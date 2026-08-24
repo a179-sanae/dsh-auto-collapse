@@ -280,8 +280,26 @@ class FakeElement extends FakeNode {
     this.attributes = new Map()
     this._classList = new Set()
     this.style = new Proxy({}, {
-      get: (t, k) => (k in t ? t[k] : ''),
+      get: (t, k) => {
+        // CSSStyleDeclaration 方法桩（issue #11 测试需要）：自定义属性读写与
+        // 删除，供插件的所有权哨兵（--dshcf-display-owned）走真实代码路径。
+        if (k === 'getPropertyValue') return (p) => (p in t ? t[p] : '')
+        if (k === 'setProperty') return (p, v) => { t[p] = String(v) }
+        if (k === 'removeProperty') return (p) => { const old = p in t ? t[p] : ''; delete t[p]; return old }
+        return k in t ? t[k] : ''
+      },
       set: (t, k, v) => {
+        // cssText 整体赋值 = 替换全部内联样式：清空后按 `prop:value` 极简解析
+        // （仅覆盖测试用到的 display 这类无前缀简单声明），模拟外部扩展用
+        // setAttribute('style')/cssText 改写时抹掉插件自定义属性哨兵的行为。
+        if (k === 'cssText') {
+          for (const key of Object.keys(t)) delete t[key]
+          for (const decl of String(v).split(';')) {
+            const i = decl.indexOf(':')
+            if (i > 0) t[decl.slice(0, i).trim()] = decl.slice(i + 1).trim()
+          }
+          return true
+        }
         t[k] = String(v)
         return true
       },
