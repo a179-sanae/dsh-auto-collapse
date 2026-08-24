@@ -779,9 +779,17 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms))
   await env.tick(); await env.tick()
   const entries = globalThis.__dshcf_observer_options
   assert(entries.length >= 1, 'controller 注册了 observer')
-  const last = entries[entries.length - 1]
-  assert(last.target === document.body, 'observe 目标是 document.body', String(last.target))
-  const o = last.options
+  // dsh-input-collapse 在 fold 之外独立注册了一个 body observer（属性过滤只
+  // 关注 data-chat-flow-kind / data-chat-anchor-key）。这里按「目标为 body 且
+  // filter 含 data-selected/data-state」锁定 fold 的 observer，而非盲取最后一条。
+  const foldEntry = entries.find(e => (
+    e.target === document.body
+    && Array.isArray(e.options.attributeFilter)
+    && e.options.attributeFilter.includes('data-selected')
+    && e.options.attributeFilter.includes('data-state')
+  ))
+  assert(foldEntry !== undefined, '找到 fold 的 body observer')
+  const o = foldEntry.options
   assert(Array.isArray(o.attributeFilter) && o.attributeFilter.includes('data-selected') && o.attributeFilter.includes('data-state'), 'attributeFilter 含 data-selected/data-state', JSON.stringify(o.attributeFilter))
   assert(o.childList === true && o.subtree === true, 'childList+subtree 开启')
   assert(o.characterData === true, 'characterData 开启（流式文本驱动）')
