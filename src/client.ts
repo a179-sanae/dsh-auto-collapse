@@ -17,6 +17,7 @@
  * data-disclosure-row），与官方 Web 客户端的 DOM 契约对齐。
  */
 import { FoldController } from './fold.ts'
+import { InputCollapseController } from './input.ts'
 import { AUTO_COLLAPSE_NS, setupSettingsCard, statusTextProvider, type SettingsScopeLike, type SlotsLike } from './settings.ts'
 
 export const name = 'dsh-auto-collapse'
@@ -38,12 +39,16 @@ export function apply(ctx: FoldClientCtx): void {
     const scope = ctx.settingsScope?.bind({ namespace: AUTO_COLLAPSE_NS })
     const controller = new FoldController(statusTextProvider(scope))
     controller.start()
+    // dsh-input-collapse：超长的用户输入文本默认折叠，超过 maxLines 行时只露前几行 + 展开/收起。
+    const input = new InputCollapseController()
+    input.start()
     const offScope = scope?.subscribe(() => controller.refresh())
     const offSettings = ctx.slots === undefined || scope === undefined ? undefined : setupSettingsCard(ctx as { slots: SlotsLike }, scope)
     return () => {
       offScope?.()
       offSettings?.()
       controller.stop()
+      input.stop()
     }
-  }, 'dsh-auto-collapse: fold observer + settings card')
+  }, 'dsh-auto-collapse: fold observer + input-collapse + settings card')
 }

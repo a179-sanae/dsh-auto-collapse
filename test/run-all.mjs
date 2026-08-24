@@ -10,6 +10,7 @@ const files = [
   'test/fold-animation.test.mjs',
   'test/adversarial-race.mjs',
   'test/adversarial-session.mjs',
+  'test/input.test.mjs',
 ]
 
 function run(args) {
