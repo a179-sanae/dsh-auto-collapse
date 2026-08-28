@@ -11,6 +11,7 @@ const files = [
   'test/adversarial-race.mjs',
   'test/adversarial-session.mjs',
   'test/external-display.test.mjs',
+  'test/lifecycle.test.mjs',
 ]
 
 function run(args) {
@@ -24,4 +25,3 @@ function run(args) {
 
 run([join(root, 'build.mjs')])
 for (const file of files) run([join(root, file)])
-

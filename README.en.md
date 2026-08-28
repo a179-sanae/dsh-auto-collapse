@@ -46,8 +46,9 @@ Restart the DSH web service (or trigger plugin HMR), then hard-refresh the page 
 ```
 src/fold.ts       core: FoldController (state machine) + findBlocks (block recognition) + collapse/expand logic
 src/client.ts     browser entry (plugin registration)
-src/index.ts      host half
-build.mjs         esbuild build (the client registration id lives in the banner)
+src/index.ts      host half (host-side entry)
+build.mjs         build script (generates lib/client.js, lib/index.js, and lib/types/*)
+tsconfig.build.json TypeScript declaration build configuration
 deploy.mjs        safe deploy: validate → back up → replace → verified restart → hash check/rollback
 cordis.patch.yml  profile tree mounting
 test/             fake-DOM contract, race, session-switch, and 40-order permutation regressions

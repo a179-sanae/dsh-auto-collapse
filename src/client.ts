@@ -16,30 +16,37 @@
  * data-variant / data-chat-anchor-key / data-subcalls / data-follow-end /
  * data-disclosure-row），与官方 Web 客户端的 DOM 契约对齐。
  */
-import { FoldController } from './fold.ts'
-import { AUTO_COLLAPSE_NS, setupSettingsCard, statusTextProvider, type SettingsScopeLike, type SlotsLike } from './settings.ts'
+import { FoldController } from './fold.js'
+import { AUTO_COLLAPSE_NS, setupSettingsCard, statusTextProvider, type SettingsScopeLike, type SlotsLike } from './settings.js'
 
 export const name = 'dsh-auto-collapse'
 
-/** 需要的宿主服务：slots 用于插件配置卡片，settingsScope 用于读写设置；两者缺一不影响核心折叠。 */
-export const inject: string[] = ['slots', 'settingsScope']
+/**
+ * 不声明必需服务：slots/settingsScope 只是可选增强能力，不能阻止核心折叠
+ * 插件启动。运行时通过 ctx.get() 读取，服务不存在时仅跳过设置卡片与配置订阅。
+ */
+export const inject: string[] = []
 
 /** 客户端根上下文的最小结构化类型（仅用 cordis 标准 effect，无运行时依赖）。 */
 export interface FoldClientCtx {
   effect(fn: () => unknown, label?: string): unknown
-  slots?: SlotsLike
-  settingsScope?: { bind(spec: { namespace: string }): SettingsScopeLike }
+  /** Cordis 动态客户端上下文提供的可选服务查询。 */
+  get?<T>(name: string): T | undefined
 }
 
 export function apply(ctx: FoldClientCtx): void {
   // 注意:cordis 的 ctx.effect(fn) 会【立即执行】fn,并把 fn 的返回值当作
   // 插件卸载时的清理函数(与 ui-slash 等官方插件同款写法)。
   ctx.effect(() => {
-    const scope = ctx.settingsScope?.bind({ namespace: AUTO_COLLAPSE_NS })
+    // 使用 ctx.get() 而不是直接读取 ctx.settingsScope/ctx.slots：动态客户端
+    // 上下文会拒绝读取未在 inject 中声明的属性，get() 才是可选服务查询入口。
+    const settingsScope = ctx.get?.<{ bind(spec: { namespace: string }): SettingsScopeLike }>('settingsScope')
+    const slots = ctx.get?.<SlotsLike>('slots')
+    const scope = settingsScope?.bind({ namespace: AUTO_COLLAPSE_NS })
     const controller = new FoldController(statusTextProvider(scope))
     controller.start()
     const offScope = scope?.subscribe(() => controller.refresh())
-    const offSettings = ctx.slots === undefined || scope === undefined ? undefined : setupSettingsCard(ctx as { slots: SlotsLike }, scope)
+    const offSettings = slots === undefined || scope === undefined ? undefined : setupSettingsCard({ slots }, scope)
     return () => {
       offScope?.()
       offSettings?.()

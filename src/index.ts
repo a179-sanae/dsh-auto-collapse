@@ -33,7 +33,7 @@ export interface Config {
 }
 
 /** Host 插件体：注册设置命名空间。 */
-export function apply(ctx: any, config: Config = {}): void {
+export function apply(ctx: unknown, config: Config = {}): void {
   let current = () => ({ statusText: config.statusText ?? DEFAULT_STATUS_TEXT })
   installSettingsSection(ctx, AUTO_COLLAPSE_SETTINGS_NAMESPACE, AUTO_COLLAPSE_SETTINGS_SCHEMA, {
     statusText: config.statusText ?? DEFAULT_STATUS_TEXT,
