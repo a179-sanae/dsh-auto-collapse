@@ -49,7 +49,7 @@ src/client.ts     browser entry (plugin registration)
 src/index.ts      host half (host-side entry)
 build.mjs         build script (generates lib/client.js, lib/index.js, and lib/types/*)
 tsconfig.build.json TypeScript declaration build configuration
-deploy.mjs        safe deploy: validate → back up → replace → verified restart → hash check/rollback
+deploy.mjs        safe deploy: validate → back up → replace → verified restart → hash check/rollback; Windows uses PowerShell, Linux/macOS use lsof + ps
 cordis.patch.yml  profile tree mounting
 test/             fake-DOM contract, race, session-switch, and 40-order permutation regressions
 ```
@@ -68,7 +68,7 @@ Runs TypeScript checking, a fresh build, and the complete regression suite.
 npm run deploy
 ```
 
-Validates the plugin/DSH package identities and the process listening on port 3080, then creates a timestamped backup, replaces the bundle, restarts DSH, and verifies the served hash. Failures restore the old bundle. Override defaults with `DSH_AUTO_COLLAPSE_LIB`, `DSH_DIR`, `DSH_WEB_PORT`, and `DSH_LOG_DIR`.
+Validates the plugin/DSH package identities and the process listening on port 3080, then creates a timestamped backup, replaces the bundle, restarts DSH, and verifies the served hash. Failures restore the old bundle. Windows, Linux, and macOS are supported; Unix systems locate DSH from `npm root -g` by default and use `HOME` for the profile path. Linux/macOS require `lsof`. Override defaults with `DSH_AUTO_COLLAPSE_LIB`, `DSH_DIR`, `DSH_WEB_PORT`, and `DSH_LOG_DIR`.
 
 ### Publishing a new version
 
