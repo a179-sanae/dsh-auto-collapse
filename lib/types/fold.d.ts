@@ -90,6 +90,9 @@ export declare class FoldController {
     private animatableSegmentBlocks;
     /** 外部变更对账定时器句柄（自重排 setTimeout 链，见 armAuditLoop）。 */
     private auditTimer;
+    /** 上一轮 pass 记录的关键元素内联 display，用于 audit 轻量检测漂移。
+     * audit 只读这份快照，不在页面稳定时重新执行完整 pass。 */
+    private auditDisplays;
     /** 回到前台立即补一轮对账；后台 tab 由 document.hidden 门控跳过。 */
     private readonly onVisibilityChange;
     constructor(statusTextProvider?: () => string | undefined, options?: {
@@ -101,15 +104,24 @@ export declare class FoldController {
     start(): void;
     /** 外部显示变更对账循环（issue #11 Bug B）：外部对宿主行的 style 写入不产生
      * observer record（style 不在 attributeFilter 内，监听会因插件自身直写 style
-     * 自激），改用低频自重排兜底——任何外部隐藏/恢复最迟一个周期被 pass 收敛；
+     * 自激），改用低频轻量对账兜底——发现漂移后才由 pass 收敛；
      * 后台 tab 由 document.hidden 门控跳过，回前台由 visibilitychange 立即补一轮。
      * 用自重排 setTimeout 链而非 setInterval：与 schedule 的兜底定时器同源，
      * 测试桩 clearTimers 后链条自然熄灭。 */
     private armAuditLoop;
     private rearmAudit;
+    /** 低成本显示状态对账：只有发现外部漂移时才启动完整 pass。
+     *
+     * 外部 style.display 写入不会产生当前 observer 的 attribute 记录，
+     * 因此仍保留 audit；但稳定页面不应每秒重扫整个 flow。快照只覆盖
+     * flow 顶层行、插件控制中的宿主行和插件自有展示行，避免引入布局读取。 */
+    private audit;
     stop(): void;
     /** body 级 observer 只负责发现 flow 替换；已有 flow 外的文本变化不再触发全量扫描。 */
     private shouldSchedule;
+    /** 判断 mutation 是否会影响宿主 flow；插件自有节点的回写直接忽略，
+     * 避免“pass 插入 chip → observer 再开一轮 pass”的自激循环。 */
+    private isRelevantMutation;
     /** 记录本批 mutation 命中的 flow 顶层消息，供正文判定缓存定向失效。
      * 从 record.target 沿 parentNode 走到 flow 的直接子级即所属消息；
      * 归属不到单一顶层消息（flow 直挂层结构变化、flow 外节点、文本直接
@@ -217,5 +229,9 @@ export declare class FoldController {
      * 动画残留在隐藏元素上自然失效。门控沿用 animate 布尔（手势路径才调）。 */
     private revealVisual;
     private restoreUnusedDisplays;
+    /** 收集 audit 需要观察的 display 集合；只读取内联样式，不触发布局计算。 */
+    private collectAuditDisplays;
+    /** 在完整 pass 完成后保存 display 基线，供下一次轻量 audit 比对。 */
+    private captureAuditDisplays;
     private restoreAllDisplays;
 }

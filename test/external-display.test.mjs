@@ -204,5 +204,50 @@ const processedRows = (flow) => flow.querySelectorAll('.dshcf-processed')
   env.clearTimers()
 }
 
+// ---------------------------------------------------------------------------
+// 场景 6（Issue #14）：稳定页面的 audit 不应每秒重跑完整 pass；外部漂移仍需唤醒
+// ---------------------------------------------------------------------------
+{
+  console.log('\n=== 场景 6: 稳定 audit 轻量对账，漂移时才触发 pass ===')
+  const { env, document, flow, registerTree } = setup()
+  const { toolHost } = makeTurn(flow, 'f')
+  document.body.appendChild(flow)
+  registerTree()
+  const ctrl = new FoldController(undefined, { auditIntervalMs: 10 })
+  const pass = ctrl.pass.bind(ctrl)
+  let passCount = 0
+  // 仅用于回归断言：统计 audit 是否错误地启动完整 pass。
+  ctrl.pass = () => {
+    passCount++
+    return pass()
+  }
+  ctrl.start()
+  await env.tick()
+  passCount = 0
+
+  // 页面没有任何变化时，多个 audit 周期都不应触发完整 pass。
+  await sleep(45)
+  env.flushRaf()
+  check('[6] 稳定 audit 不重跑完整 pass', passCount === 0, `实际 ${passCount}`)
+
+  // pass 自己插入 chip 产生的 childList 不应再次排队完整 pass。
+  const observer = globalThis.__dshcf_observers.at(-1)
+  const pluginNode = flow.querySelector('.dshcf-processed')
+  const beforePluginMutation = passCount
+  observer.cb([{ type: 'childList', target: flow, addedNodes: [pluginNode], removedNodes: [] }], observer)
+  env.flushRaf()
+  check('[6] 插件自有 childList 不触发额外 pass', passCount === beforePluginMutation, `实际 ${passCount}`)
+
+  // 外部 display 改写不产生 observer record，但下一轮 audit 必须发现漂移并收敛。
+  toolHost.style.display = 'flex'
+  await sleep(20)
+  env.flushRaf()
+  check('[6] 外部 display 漂移仍触发 pass', passCount > 0, `实际 ${passCount}`)
+  check('[6] 漂移后折叠状态重新收敛', toolHost.style.display === 'none', String(toolHost.style.display))
+
+  ctrl.stop()
+  env.clearTimers()
+}
+
 console.log(`\n[DONE] failures=${failures}`)
 process.exit(failures === 0 ? 0 : 1)
