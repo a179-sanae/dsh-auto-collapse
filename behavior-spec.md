@@ -81,3 +81,25 @@
 - 图标：二级工具块优先克隆原生 IconApiOutline14（3 path），克隆不可得时用同款硬编码 path 兜底（视觉一致）；完成态「编辑了文件」块优先克隆原生 IconEditOutline16（write/edit 工具行同款），同样以硬编码 path 兜底；思考块用原生 think 图标；无原生可克隆时兜底。
 - 不得产生重复行、错位、残留空白、正文消失或内容截断。
 - 中文文案、中文时长格式。
+
+## 九、滚动与性能约束（issue #14）
+
+长会话（90+ 流节点）滚动到底部时的卡顿与上下抽搐，源于「插件折叠改高 → 宿主
+ChatView 吸底回写 / 浏览器滚动锚定」的跨帧拉锯与每轮 pass 的全量重扫。约束：
+
+- **审计循环轻量对账**：稳定页面的 audit 周期只比对其 display 快照
+  （flow 顶层行 + 受控行 + 插件自有展示行的内联 display），发现漂移才启动
+  完整 pass；插件自有节点的 mutation（chip/已处理行/合并行的插入移除、状态
+  文案回写）不得再触发一轮 pass（自激消除）。
+- **分块快照复用**：characterData / attributes 批次（流式文本、data-state
+  翻转）不改变块结构，pass 直接复用上一轮 findBlocks 快照，不做全量
+  querySelectorAll 重扫；行状态由 reconcile/updateChip 的实时 DOM 读取保证
+  新鲜。childList 批次或正文判定翻转（纯 think 消息变正文）立即重建。
+- **正文缓存定向失效**：只有被 mutation 命中的消息重算正文判定；flow 直挂
+  文本与 flow 外混批记录不清空全会话缓存。
+- **回合时长解析记忆化**：`parseTurnDuration` 按 boundary 文本为令牌缓存，
+  长会话下每轮 pass 不再重复 querySelectorAll + compareDocumentPosition。
+- **贴底钉回**：pass 的几何写入前若视口距底 ≤ 24px（上游 FOLLOW_THRESHOLD），
+  写入后（如「已处理」行插入使内容增长）在同一帧把 scrollTop 钉回新底部，
+  让宿主下一帧的吸底回写成为幂等 no-op；远离底部（用户正在浏览）时不写
+  scrollTop——视口上方的高度变化交给浏览器 scroll anchoring，插件不参与拉锯。

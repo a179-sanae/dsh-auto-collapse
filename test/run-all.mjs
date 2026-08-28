@@ -12,6 +12,7 @@ const files = [
   'test/adversarial-session.mjs',
   'test/external-display.test.mjs',
   'test/lifecycle.test.mjs',
+  'test/issue14-followup.test.mjs',
 ]
 
 function run(args) {
