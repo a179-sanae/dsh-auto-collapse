@@ -479,6 +479,9 @@ export class FoldController {
   private animatableSegmentBlocks = new Map<string, ReadonlySet<string>>()
   /** 外部变更对账定时器句柄（自重排 setTimeout 链，见 armAuditLoop）。 */
   private auditTimer: number = 0
+  /** 上一轮 pass 记录的关键元素内联 display，用于 audit 轻量检测漂移。
+   * audit 只读这份快照，不在页面稳定时重新执行完整 pass。 */
+  private auditDisplays = new Map<HTMLElement, string>()
   /** 回到前台立即补一轮对账；后台 tab 由 document.hidden 门控跳过。 */
   private readonly onVisibilityChange = (): void => {
     if (typeof document === 'undefined' || document.hidden !== true) this.schedule()
@@ -540,7 +543,7 @@ export class FoldController {
 
   /** 外部显示变更对账循环（issue #11 Bug B）：外部对宿主行的 style 写入不产生
    * observer record（style 不在 attributeFilter 内，监听会因插件自身直写 style
-   * 自激），改用低频自重排兜底——任何外部隐藏/恢复最迟一个周期被 pass 收敛；
+   * 自激），改用低频轻量对账兜底——发现漂移后才由 pass 收敛；
    * 后台 tab 由 document.hidden 门控跳过，回前台由 visibilitychange 立即补一轮。
    * 用自重排 setTimeout 链而非 setInterval：与 schedule 的兜底定时器同源，
    * 测试桩 clearTimers 后链条自然熄灭。 */
@@ -560,9 +563,39 @@ export class FoldController {
         this.rearmAudit()
         return
       }
-      this.schedule()
+      this.audit()
       this.rearmAudit()
     }, this.auditIntervalMs)
+  }
+
+  /** 低成本显示状态对账：只有发现外部漂移时才启动完整 pass。
+   *
+   * 外部 style.display 写入不会产生当前 observer 的 attribute 记录，
+   * 因此仍保留 audit；但稳定页面不应每秒重扫整个 flow。快照只覆盖
+   * flow 顶层行、插件控制中的宿主行和插件自有展示行，避免引入布局读取。 */
+  private audit(): void {
+    if (this.disposed) return
+    const flow = this.flow
+    if (flow === null || !flow.isConnected) {
+      // body observer 会负责发现新 flow；旧 flow 脱离时补一轮 pass 以切换引用。
+      if (flow !== null) this.schedule()
+      return
+    }
+    const current = this.collectAuditDisplays(flow)
+    if (current.size !== this.auditDisplays.size) {
+      this.schedule()
+      return
+    }
+    for (const [el, display] of current) {
+      if (this.auditDisplays.get(el) !== display) {
+        this.schedule()
+        return
+      }
+      if (this.controlledDisplay.has(el) && this.displayForeign(el)) {
+        this.schedule()
+        return
+      }
+    }
   }
 
   stop(): void {
@@ -589,10 +622,30 @@ export class FoldController {
     // 新 flow。MutationObserver 回调触发时 record.target 已不再是旧 flow 的
     // 祖先，因此仅靠祖先链过滤会漏掉这次替换，直到刷新才重新初始化。
     if (records.length === 0 || this.flow === null || !this.flow.isConnected) return true
-    return records.some(record => (
-      nodeWithin(record.target, this.flow as HTMLElement)
-      || nodeWithin(this.flow as HTMLElement, record.target)
-    ))
+    return records.some(record => this.isRelevantMutation(record))
+  }
+
+  /** 判断 mutation 是否会影响宿主 flow；插件自有节点的回写直接忽略，
+   * 避免“pass 插入 chip → observer 再开一轮 pass”的自激循环。 */
+  private isRelevantMutation(record: MutationRecord): boolean {
+    const flow = this.flow
+    if (flow === null || !flow.isConnected) return true
+    if (!nodeWithin(record.target, flow) && !nodeWithin(flow, record.target)) return false
+
+    // 状态文案由插件自己维护；其 characterData 回写无需再次扫描 flow。
+    if (record.type === 'characterData' && record.target instanceof Text && this.turnStatusTexts.has(record.target)) {
+      return false
+    }
+
+    const changed = [
+      ...Array.from(record.addedNodes ?? []),
+      ...Array.from(record.removedNodes ?? []),
+    ]
+    // childList 的 target 可能是宿主行，但只要实际增删的节点全部属于
+    // 插件自有展示元素，就不会改变宿主语义状态，可安全忽略。
+    if (changed.length > 0 && changed.every(isPluginOwnedNode)) return false
+    if (changed.length === 0 && isPluginOwnedNode(record.target)) return false
+    return true
   }
 
   /** 记录本批 mutation 命中的 flow 顶层消息，供正文判定缓存定向失效。
@@ -609,7 +662,7 @@ export class FoldController {
       this.dirtyMessages.clear()
       return
     }
-    for (const record of records) {
+    for (const record of records.filter(record => this.isRelevantMutation(record))) {
       let current: Node | null = record.target
       while (current !== null && current.parentNode !== flow) current = current.parentNode
       if (!(current instanceof HTMLElement)) {
@@ -793,6 +846,7 @@ export class FoldController {
     } else {
       replaceTurnStatus(flow, this.turnStatusTexts, statusText)
     }
+    this.captureAuditDisplays(flow)
   }
 
   /** flow 元素变化即视为会话切换：完整恢复旧 flow，再从新 DOM 重建。 */
@@ -819,6 +873,7 @@ export class FoldController {
     this.completedOnce.clear()
     this.bodyTextCache = new WeakMap()
     this.dirtyMessages.clear()
+    this.auditDisplays.clear()
     this.restoreAllDisplays()
     restoreTurnStatus(this.turnStatusTexts)
     this.flow = next
@@ -1579,6 +1634,28 @@ export class FoldController {
     }
   }
 
+  /** 收集 audit 需要观察的 display 集合；只读取内联样式，不触发布局计算。 */
+  private collectAuditDisplays(flow: HTMLElement): Map<HTMLElement, string> {
+    const nodes = new Set<HTMLElement>(flowItems(flow))
+    for (const el of this.controlledDisplay) {
+      if (el.isConnected && nodeWithin(el, flow)) nodes.add(el)
+    }
+    for (const { chip } of this.chips.values()) {
+      if (chip.isConnected && nodeWithin(chip, flow)) nodes.add(chip)
+    }
+    for (const row of this.mergedThinks.values()) {
+      if (row.isConnected && nodeWithin(row, flow)) nodes.add(row)
+    }
+    const displays = new Map<HTMLElement, string>()
+    for (const el of nodes) displays.set(el, el.style.display)
+    return displays
+  }
+
+  /** 在完整 pass 完成后保存 display 基线，供下一次轻量 audit 比对。 */
+  private captureAuditDisplays(flow: HTMLElement): void {
+    this.auditDisplays = this.collectAuditDisplays(flow)
+  }
+
   private restoreAllDisplays(): void {
     for (const el of [...this.controlledDisplay]) this.restoreElement(el)
     this.controlledDisplay.clear()
@@ -1856,6 +1933,14 @@ function nodeWithin(node: Node, ancestor: Node): boolean {
     if (current === ancestor) return true
   }
   return false
+}
+
+/** 判断节点是否属于插件自有展示树（chip、合并行、已处理行）。 */
+function isPluginOwnedNode(node: Node): boolean {
+  // SVG 图标不是 HTMLElement；按 nodeType 判断可同时覆盖 HTML/SVG 展示节点。
+  const element = node.nodeType === 1 ? node as Element : node.parentElement
+  return element !== null && element !== undefined
+    && element.closest('.dshcf-chip, .dshcf-processed, .dshcf-merged-think, .dshcf-merged-body') !== null
 }
 
 /** 排除插件自己插入的一级行/flow 级 chip，得到宿主的真实顶层消息顺序。 */
