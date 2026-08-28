@@ -52,6 +52,11 @@ const DISPLAY_OWNED_PROP = '--dshcf-display-owned'
  * 隐藏/恢复最迟一个周期被 pass 收敛。可通过 options.auditIntervalMs 调整。 */
 const AUDIT_TICK_MS = 1000
 
+/** 视口贴底判定阈值（issue #14）：上游 ChatView 的 FOLLOW_THRESHOLD = 24
+ * （报告者逆向），折叠写入前后以此判定「用户贴底」并在同一帧钉回底部，
+ * 消除「插件改高 → 下一帧宿主 ResizeObserver 吸底回写」的跨帧抽搐。 */
+const STICK_BOTTOM_THRESHOLD_PX = 24
+
 /** 工具名（data-tool 属性）→ 展示名，与官方 tool-call-model 的标题对齐。 */
 const TOOL_LABELS: Record<string, string> = {
   bash: 'Bash',
@@ -482,6 +487,14 @@ export class FoldController {
   /** 上一轮 pass 记录的关键元素内联 display，用于 audit 轻量检测漂移。
    * audit 只读这份快照，不在页面稳定时重新执行完整 pass。 */
   private auditDisplays = new Map<HTMLElement, string>()
+  /** 自上次 pass 以来 flow 子树发生过结构变化（childList）或正文判定翻转：
+   * 为 true 时 pass 重建分块快照，否则复用 currentBlocks——characterData/
+   * attributes 批次（流式文本、data-state 翻转）不改变块结构，跳过全量
+   * querySelectorAll 重扫（issue #14：长会话下每轮重扫造成主线程卡顿）。 */
+  private structureDirty = true
+  /** 滚动稳定化（issue #14）：flow 最近的滚动容器缓存（按 flow 身份失效）。 */
+  private scrollContainer: HTMLElement | null = null
+  private scrollContainerFlow: HTMLElement | null = null
   /** 回到前台立即补一轮对账；后台 tab 由 document.hidden 门控跳过。 */
   private readonly onVisibilityChange = (): void => {
     if (typeof document === 'undefined' || document.hidden !== true) this.schedule()
@@ -649,9 +662,11 @@ export class FoldController {
   }
 
   /** 记录本批 mutation 命中的 flow 顶层消息，供正文判定缓存定向失效。
-   * 从 record.target 沿 parentNode 走到 flow 的直接子级即所属消息；
-   * 归属不到单一顶层消息（flow 直挂层结构变化、flow 外节点、文本直接
-   * 子节点）时全量失效——保守正确且罕见。 */
+   * 从 record.target 沿 parentNode 走到 flow 的直接子级即所属消息。
+   * 失效粒度（issue #14）：只有 childList 使分块快照失效；flow 直挂层的
+   * 插件节点/文本节点与 flow 外的混批记录不影响任何消息的正文判定，跳过
+   * 而非全量失效——旧逻辑把它们全部放大成 O(全会话) 的 TreeWalker 重扫，
+   * 长会话流式期间每帧如此。空批次仍保守全量失效（测试桩的调度通知）。 */
   private markDirty(records: MutationRecord[]): void {
     const flow = this.flow
     if (flow === null || !flow.isConnected) return
@@ -660,17 +675,24 @@ export class FoldController {
       // 记录（真实浏览器 observer 不会以空记录回调）：保守全量失效。
       this.bodyTextCache = new WeakMap()
       this.dirtyMessages.clear()
+      this.structureDirty = true
       return
     }
     for (const record of records.filter(record => this.isRelevantMutation(record))) {
-      let current: Node | null = record.target
-      while (current !== null && current.parentNode !== flow) current = current.parentNode
-      if (!(current instanceof HTMLElement)) {
-        this.bodyTextCache = new WeakMap()
-        this.dirtyMessages.clear()
-        return
+      if (record.type === 'childList') this.structureDirty = true
+      if (record.target === flow) {
+        // flow 直挂层 childList：逐个新增节点归属到消息（插件自己的
+        // processed row / flow-chip 也走这里，hasBody 判定为否并缓存，
+        // 代价一次小 TreeWalker）；被移除的节点与其余消息的缓存互不影响。
+        for (const node of record.addedNodes ?? []) {
+          if (node instanceof HTMLElement) this.dirtyMessages.add(node)
+        }
+        continue
       }
-      this.dirtyMessages.add(current)
+      const owner = flowChildOwner(record.target, flow)
+      if (owner !== null) this.dirtyMessages.add(owner)
+      // owner === null：record 不在 flow 子树内（shouldSchedule 的批次级
+      // 过滤放行的混批记录）或 flow 直挂文本——不命中任何消息缓存，跳过。
     }
   }
 
@@ -734,13 +756,31 @@ export class FoldController {
     const flow = this.flow
     if (flow === null) return
 
-    // 正文缓存定向失效：只重算本 pass 前被 mutation 命中的消息。
-    for (const el of this.dirtyMessages) this.bodyTextCache.delete(el)
+    // 正文缓存定向失效 + 正文翻转检测：只重算本 pass 前被 mutation 命中的
+    // 消息；某消息的有无正文判定发生翻转时，分块边界随之改变，需重建快照
+    // （纯文本流式消息从“纯 think/堆积”变“正文”就靠这里驱动重建）。
+    let bodyFlipped = false
+    for (const el of this.dirtyMessages) {
+      const prev = this.bodyTextCache.get(el)
+      this.bodyTextCache.delete(el)
+      if (prev !== undefined && this.hasBodyCached(el) !== prev) bodyFlipped = true
+    }
     this.dirtyMessages.clear()
-    const blocks = findBlocks(flow, (el) => this.hasBodyCached(el))
+    // 分块快照复用（issue #14）：结构未变（无 childList、无正文翻转）时
+    // 跳过 findBlocks 的全量 querySelectorAll 重扫——流式文本与 data-state
+    // 翻转批次直接沿用上一轮快照，行状态由 reconcile/updateChip 的实时
+    // DOM 读取保证新鲜。
+    const rebuildBlocks = this.structureDirty || bodyFlipped || this.currentBlocks.size === 0
+    this.structureDirty = false
+    const blocks = rebuildBlocks
+      ? findBlocks(flow, (el) => this.hasBodyCached(el))
+      : [...this.currentBlocks.values()]
     this.currentBlocks = new Map(blocks.map(block => [block.key, block]))
     const segments = buildSegments(flow, blocks, (el) => this.hasBodyCached(el))
     const liveSegmentKeys = new Set(segments.map(segment => segment.key))
+
+    // 滚动锚定（issue #14）：几何写入前记录贴底意图，见 captureScrollAnchor。
+    const scrollAnchor = this.captureScrollAnchor(flow)
 
     for (const segment of segments) {
       if (!segment.running) continue
@@ -826,6 +866,9 @@ export class FoldController {
     this.cleanupStaleChips(seenBlocks)
     this.restoreUnusedDisplays(desiredHidden)
     for (const state of this.segmentStates.values()) this.placeProcessedRow(flow, state)
+    // 几何写入收尾：贴底视口同帧钉回（issue #14），在宿主 ResizeObserver
+    // 的下一帧吸底回写之前消除跨帧抽搐窗口。
+    this.stabilizeScrollAfterFold(scrollAnchor)
 
     for (const key of [...this.runningSince.keys()]) {
       if (!liveSegmentKeys.has(key)) this.runningSince.delete(key)
@@ -847,6 +890,54 @@ export class FoldController {
       replaceTurnStatus(flow, this.turnStatusTexts, statusText)
     }
     this.captureAuditDisplays(flow)
+  }
+
+  /** flow 最近的滚动容器（issue #14 滚动稳定化的测量基准）：沿父链找第一个
+   * overflow-y 为 auto/scroll 且实际可滚动的祖先。结果按 flow 身份缓存；
+   * 找不到时不缓存（内容增长后祖先可能变为可滚动），每 pass 重探的代价
+   * 只是几次 clean-layout 的 computed style / scrollHeight 读取。 */
+  private findScrollContainer(flow: HTMLElement): HTMLElement | null {
+    if (this.scrollContainerFlow === flow && this.scrollContainer !== null && this.scrollContainer.isConnected) {
+      return this.scrollContainer
+    }
+    let node: HTMLElement | null = flow.parentElement
+    while (node !== null) {
+      if (typeof getComputedStyle === 'function') {
+        const oy = getComputedStyle(node).overflowY
+        if ((oy === 'auto' || oy === 'scroll') && node.scrollHeight > node.clientHeight) break
+      }
+      node = node.parentElement
+    }
+    if (node === null) return null
+    this.scrollContainer = node
+    this.scrollContainerFlow = flow
+    return node
+  }
+
+  /** 几何写入前捕捉贴底意图（issue #14）：视口距底 ≤ 上游 FOLLOW_THRESHOLD
+   * 时返回锚点，stabilizeScrollAfterFold 在写入后同帧钉回底部。远离底部
+   * （用户正在滚动浏览）时不干预——视口上方的高度变化由浏览器 scroll
+   * anchoring 补偿，视口下方的折叠不可见，插件再写 scrollTop 只会加入
+   * 上游吸底回写的拉锯。 */
+  private captureScrollAnchor(flow: HTMLElement): { el: HTMLElement } | null {
+    const scroller = this.findScrollContainer(flow)
+    if (scroller === null) return null
+    const dist = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
+    // dist 为负（橡皮筋回弹中）同样视为贴底意图。
+    return dist <= STICK_BOTTOM_THRESHOLD_PX ? { el: scroller } : null
+  }
+
+  /** 几何写入后把贴底视口钉回底部：折叠让 scrollHeight 缩小时若不在此帧
+   * 补写 scrollTop，宿主 ChatView 要到下一帧 ResizeObserver 才吸底回写，
+   * 中间的空档让触控板惯性滚动乘虚而入，反复折叠时表现为上下抽搐（用户
+   * 实测：长会话滚到底部附近无法稳定定位）。同一帧内钉回后，宿主的吸底
+   * 回写成为幂等 no-op，不再是第二个 scrollTop 写入方。 */
+  private stabilizeScrollAfterFold(anchor: { el: HTMLElement } | null): void {
+    if (anchor === null) return
+    const el = anchor.el
+    if (!el.isConnected) return
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (dist > STICK_BOTTOM_THRESHOLD_PX) el.scrollTop = el.scrollHeight - el.clientHeight
   }
 
   /** flow 元素变化即视为会话切换：完整恢复旧 flow，再从新 DOM 重建。 */
@@ -874,6 +965,7 @@ export class FoldController {
     this.bodyTextCache = new WeakMap()
     this.dirtyMessages.clear()
     this.auditDisplays.clear()
+    this.structureDirty = true
     this.restoreAllDisplays()
     restoreTurnStatus(this.turnStatusTexts)
     this.flow = next
@@ -1943,6 +2035,15 @@ function isPluginOwnedNode(node: Node): boolean {
     && element.closest('.dshcf-chip, .dshcf-processed, .dshcf-merged-think, .dshcf-merged-body') !== null
 }
 
+/** mutation target 沿 parentNode 走到 flow 的直接子级（所属消息）。
+ * 走不到（flow 外节点）或归属处是 flow 直挂文本节点时返回 null——
+ * 两者都不命中任何消息的正文判定缓存。 */
+function flowChildOwner(node: Node, flow: HTMLElement): HTMLElement | null {
+  let current: Node | null = node
+  while (current !== null && current.parentNode !== flow) current = current.parentNode
+  return current instanceof HTMLElement ? current : null
+}
+
 /** 排除插件自己插入的一级行/flow 级 chip，得到宿主的真实顶层消息顺序。 */
 function flowItems(flow: HTMLElement): HTMLElement[] {
   return [...flow.children].filter((el): el is HTMLElement => (
@@ -2501,9 +2602,21 @@ function isThinkRow(row: HTMLElement): boolean {
 }
 
 /** 从回合尾时间戳消息解析官方耗时（"用时 33秒" / "用时 2分05秒"），
- * 历史会话加载时没有本地 running 起点，用它补上 "已处理 {时长}"。 */
+ * 历史会话加载时没有本地 running 起点，用它补上 "已处理 {时长}"。
+ * 结果按 boundary 记忆化、以文本为失效令牌：completedKeys 循环每轮 pass
+ * 都会走到这里，长会话下不做记忆化就是每秒多次 querySelectorAll +
+ * compareDocumentPosition 全扫（issue #14 卡顿源之一）。 */
+const turnDurationCache = new WeakMap<HTMLElement, { text: string; duration: number | undefined }>()
 function parseTurnDuration(boundary: HTMLElement): number | undefined {
   const text = boundary.textContent ?? ''
+  const cached = turnDurationCache.get(boundary)
+  if (cached !== undefined && cached.text === text) return cached.duration
+  const duration = parseTurnDurationText(boundary, text)
+  turnDurationCache.set(boundary, { text, duration })
+  return duration
+}
+
+function parseTurnDurationText(boundary: HTMLElement, text: string): number | undefined {
   // 旧格式：turn-tail 带 "用时 33秒" / "用时 2分05秒"。
   const m = text.match(/用时\s*(\d+)分(\d+)秒|用时\s*(\d+)秒/)
   if (m !== null) {

@@ -93,6 +93,14 @@ export declare class FoldController {
     /** 上一轮 pass 记录的关键元素内联 display，用于 audit 轻量检测漂移。
      * audit 只读这份快照，不在页面稳定时重新执行完整 pass。 */
     private auditDisplays;
+    /** 自上次 pass 以来 flow 子树发生过结构变化（childList）或正文判定翻转：
+     * 为 true 时 pass 重建分块快照，否则复用 currentBlocks——characterData/
+     * attributes 批次（流式文本、data-state 翻转）不改变块结构，跳过全量
+     * querySelectorAll 重扫（issue #14：长会话下每轮重扫造成主线程卡顿）。 */
+    private structureDirty;
+    /** 滚动稳定化（issue #14）：flow 最近的滚动容器缓存（按 flow 身份失效）。 */
+    private scrollContainer;
+    private scrollContainerFlow;
     /** 回到前台立即补一轮对账；后台 tab 由 document.hidden 门控跳过。 */
     private readonly onVisibilityChange;
     constructor(statusTextProvider?: () => string | undefined, options?: {
@@ -123,9 +131,11 @@ export declare class FoldController {
      * 避免“pass 插入 chip → observer 再开一轮 pass”的自激循环。 */
     private isRelevantMutation;
     /** 记录本批 mutation 命中的 flow 顶层消息，供正文判定缓存定向失效。
-     * 从 record.target 沿 parentNode 走到 flow 的直接子级即所属消息；
-     * 归属不到单一顶层消息（flow 直挂层结构变化、flow 外节点、文本直接
-     * 子节点）时全量失效——保守正确且罕见。 */
+     * 从 record.target 沿 parentNode 走到 flow 的直接子级即所属消息。
+     * 失效粒度（issue #14）：只有 childList 使分块快照失效；flow 直挂层的
+     * 插件节点/文本节点与 flow 外的混批记录不影响任何消息的正文判定，跳过
+     * 而非全量失效——旧逻辑把它们全部放大成 O(全会话) 的 TreeWalker 重扫，
+     * 长会话流式期间每帧如此。空批次仍保守全量失效（测试桩的调度通知）。 */
     private markDirty;
     private schedule;
     /** 异步 observer 异常不能静默杀死协调器；保留非可视诊断并允许后续 mutation 重试。 */
@@ -133,6 +143,23 @@ export declare class FoldController {
     private reportError;
     /** 一轮重放：重算堆积 → 应用折叠/展开 → 摆放并更新 chip → 替换状态行。 */
     private pass;
+    /** flow 最近的滚动容器（issue #14 滚动稳定化的测量基准）：沿父链找第一个
+     * overflow-y 为 auto/scroll 且实际可滚动的祖先。结果按 flow 身份缓存；
+     * 找不到时不缓存（内容增长后祖先可能变为可滚动），每 pass 重探的代价
+     * 只是几次 clean-layout 的 computed style / scrollHeight 读取。 */
+    private findScrollContainer;
+    /** 几何写入前捕捉贴底意图（issue #14）：视口距底 ≤ 上游 FOLLOW_THRESHOLD
+     * 时返回锚点，stabilizeScrollAfterFold 在写入后同帧钉回底部。远离底部
+     * （用户正在滚动浏览）时不干预——视口上方的高度变化由浏览器 scroll
+     * anchoring 补偿，视口下方的折叠不可见，插件再写 scrollTop 只会加入
+     * 上游吸底回写的拉锯。 */
+    private captureScrollAnchor;
+    /** 几何写入后把贴底视口钉回底部：折叠让 scrollHeight 缩小时若不在此帧
+     * 补写 scrollTop，宿主 ChatView 要到下一帧 ResizeObserver 才吸底回写，
+     * 中间的空档让触控板惯性滚动乘虚而入，反复折叠时表现为上下抽搐（用户
+     * 实测：长会话滚到底部附近无法稳定定位）。同一帧内钉回后，宿主的吸底
+     * 回写成为幂等 no-op，不再是第二个 scrollTop 写入方。 */
+    private stabilizeScrollAfterFold;
     /** flow 元素变化即视为会话切换：完整恢复旧 flow，再从新 DOM 重建。 */
     private switchFlow;
     private createProcessedRow;

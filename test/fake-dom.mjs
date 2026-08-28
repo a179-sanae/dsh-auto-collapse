@@ -313,6 +313,11 @@ class FakeElement extends FakeNode {
     })
     this.offsetParent = null
     this._rect = { width: 0, height: 0 }
+    // 滚动几何桩（issue #14 测试用）：默认 0 值让 findScrollContainer 的
+    // scrollHeight > clientHeight 判定为否，存量测试不触发滚动稳定化路径。
+    this.scrollTop = 0
+    this.clientHeight = 0
+    this.scrollHeight = 0
   }
   get classList() {
     const set = this._classList
@@ -550,13 +555,15 @@ export function installDomGlobals() {
     NodeFilter: { SHOW_TEXT: 4 },
     /** 最小 computed-style 桩：display 取内联（与旧 isDisplayed 内联语义等价），
      * rowGap 固定 16px 对齐 layoutHeights 的 flex-column(gap=16) 模型，
-     * marginBottom 取内联——供 fold.ts 的 gap 补偿读取（plan 前提 2/3）。 */
+     * marginBottom 取内联——供 fold.ts 的 gap 补偿读取（plan 前提 2/3）。
+     * overflowY 取内联（默认 visible）——供 findScrollContainer 判定滚动容器。 */
     getComputedStyle(el) {
       const style = el && el.style ? el.style : {}
       return {
         display: style.display || 'block',
         rowGap: '16px',
         marginBottom: style.marginBottom || '0px',
+        overflowY: style.overflowY || 'visible',
       }
     },
     MutationObserver: class {

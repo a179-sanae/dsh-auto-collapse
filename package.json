@@ -1,6 +1,6 @@
 {
   "name": "dsh-auto-collapse",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "DeepSeek Harness Web 客户端插件：把会话里的工具卡片与 Think 推理块折叠成一行，折叠态实时显示当前正在进行的工作（工具名 + 正在执行的命令/参数、或思考内容），运行中带流光动画；点击展开/收起。让界面只保留模型说的话。",
   "type": "module",
   "main": "lib/index.js",
