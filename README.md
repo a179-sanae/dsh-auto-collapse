@@ -47,8 +47,9 @@ dsh plugin --profile web add "github:a179-sanae/dsh-auto-collapse#main"
 ```
 src/fold.ts       核心：FoldController（状态机）+ findBlocks（块识别）+ 折叠/展开逻辑
 src/client.ts     浏览器端入口（注册插件）
-src/index.ts      host half
-build.mjs         esbuild 构建（lib/client.js 的注册 id 在 banner 里）
+src/index.ts      host half（宿主端，Host half）
+build.mjs         构建脚本（Build script）：生成 lib/client.js、lib/index.js 与 lib/types/*
+tsconfig.build.json TypeScript 声明构建配置（Declaration build config）
 deploy.mjs        安全部署：校验 → 备份 → 替换 → 身份核验重启 → 哈希验证/回滚（DSH web 输出持久化到 ~/.dsh/logs/web.{out,err}.log）
 cordis.patch.yml  profile 树挂载
 test/             fake DOM 契约、竞态、会话切换与 40 组乱序排列回归

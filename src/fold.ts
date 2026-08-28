@@ -419,6 +419,14 @@ interface PendingAnim {
 
 export class FoldController {
   private observer: MutationObserver | null = null
+  /** 防止同一个控制器重复注册 observer、定时器和可见性监听。 */
+  private started = false
+  /** body 尚未创建时等待 DOMContentLoaded，再补一次启动。 */
+  private waitingForBody = false
+  private readonly onDomContentLoaded = (): void => {
+    this.waitingForBody = false
+    this.start()
+  }
   private raf = 0
   private timer = 0
   private disposed = false
@@ -488,7 +496,16 @@ export class FoldController {
   }
 
   start(): void {
-    if (this.disposed) return
+    if (this.disposed || this.started || this.waitingForBody) return
+    if (typeof document === 'undefined') return
+    if (document.body === null) {
+      // 插件可能在 document.body 创建前被加载；不要让 observe(null) 抛错，
+      // 等 DOMContentLoaded 后由同一个控制器继续启动。
+      if (typeof document.addEventListener !== 'function') return
+      this.waitingForBody = true
+      document.addEventListener('DOMContentLoaded', this.onDomContentLoaded, { once: true })
+      return
+    }
     injectStyle()
     try {
       this.observer = new MutationObserver(records => {
@@ -509,9 +526,13 @@ export class FoldController {
         // 不会自激。
         characterData: true,
       })
+      this.started = true
       this.armAuditLoop()
       this.schedule()
     } catch (error) {
+      this.observer?.disconnect()
+      this.observer = null
+      this.started = false
       this.reportError(error)
       throw error
     }
@@ -546,6 +567,11 @@ export class FoldController {
 
   stop(): void {
     this.disposed = true
+    this.started = false
+    this.waitingForBody = false
+    if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+      document.removeEventListener('DOMContentLoaded', this.onDomContentLoaded)
+    }
     if (this.raf !== 0) cancelAnimationFrame(this.raf)
     if (this.timer !== 0) clearTimeout(this.timer)
     if (this.auditTimer !== 0) { clearTimeout(this.auditTimer); this.auditTimer = 0 }
