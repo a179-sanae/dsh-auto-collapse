@@ -3,6 +3,8 @@
 > DeepSeek Harness Web 客户端插件：把会话里的工具卡片与 Think 推理块自动折叠成一行摘要，让界面只保留模型说的话。
 >
 > English: [README.en.md](./README.en.md)
+>
+> 插件市场（Plugin marketplace）：[dsh.so](https://www.dsh.so/artifact/dsh-auto-collapse/)
 
 ## 这是什么
 
