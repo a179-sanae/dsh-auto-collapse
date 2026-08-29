@@ -67,7 +67,7 @@ function makeClosedTurn(flow, id) {
   const tail = el('div', { 'data-chat-anchor-key': `${id}-tail`, 'data-chat-flow-kind': 'turn-tail' }, flow)
   tail.setRect({ height: 24 })
   textNode('用时 3秒', tail)
-  return parts
+  return { ...parts, tail }
 }
 
 const chips = (flow) => flow.querySelectorAll('.dshcf-chip')
@@ -152,11 +152,22 @@ const processedRows = (flow) => flow.querySelectorAll('.dshcf-processed')
 // ---------------------------------------------------------------------------
 /** 滚动容器桩：scrollHeight = _base + 40×「已处理」行数（模拟插件在 pass
  * 内插入行导致的内容增长）；scrollTop/clientHeight 为普通属性。 */
-function makeScroller(flow) {
+function makeScroller(flow, base = 10000, tracker = null) {
   const scroller = el('div', { class: 'dshcf-test-scroller' })
   scroller.style.overflowY = 'auto'
-  scroller._base = 10000
+  scroller._base = base
   scroller.clientHeight = 1000
+  if (tracker !== null) {
+    tracker.value = 0
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => tracker.value,
+      set: value => {
+        tracker.value = value
+        tracker.writes++
+      },
+    })
+  }
   Object.defineProperty(scroller, 'scrollHeight', {
     get() {
       return this._base + flow.querySelectorAll('.dshcf-processed').length * 40
@@ -164,6 +175,54 @@ function makeScroller(flow) {
   })
   scroller.appendChild(flow)
   return scroller
+}
+
+// ---------------------------------------------------------------------------
+// 场景 5：同一 flow 重新挂载到新滚动容器后，贴底钉回必须作用于新容器
+// ---------------------------------------------------------------------------
+{
+  console.log('\n=== 场景 5: flow 重新挂载后的滚动容器缓存 ===')
+  const { env, document, flow, registerTree } = setup()
+  const oldTracker = { value: 0, writes: 0 }
+  const newTracker = { value: 0, writes: 0 }
+  const oldScroller = makeScroller(flow, 10000, oldTracker)
+  makeClosedTurn(flow, 'e1')
+  document.body.appendChild(oldScroller)
+  registerTree()
+  oldScroller.scrollTop = 8990
+  const ctrl = new FoldController()
+  ctrl.start()
+  env.flushRaf()
+  await env.tick()
+  oldTracker.writes = 0
+
+  // 保留同一 flow 节点，只替换其外层滚动容器；旧容器仍连接在 body 上。
+  const newScroller = makeScroller(flow, 20000, newTracker)
+  flow.remove()
+  newScroller.appendChild(flow)
+  document.body.appendChild(newScroller)
+  oldScroller.scrollTop = 9016
+  newScroller.scrollTop = 19016
+  oldTracker.writes = 0
+  newTracker.writes = 0
+
+  // 新增一个已收尾回合，令两套滚动高度都增长 40px，触发贴底钉回。
+  const nextTurn = makeClosedTurn(flow, 'e2')
+  env.notifyMutations([{
+    type: 'childList',
+    target: flow,
+    addedNodes: [nextTurn.userSeat, nextTurn.toolHost, nextTurn.finalStep, nextTurn.tail],
+    removedNodes: [],
+  }])
+  env.flushRaf()
+  await env.tick()
+
+  check('[5] 旧滚动容器不再接收 scrollTop 写入', oldTracker.writes === 0, String(oldTracker.writes))
+  check('[5] 新滚动容器接收贴底钉回', newTracker.writes > 0, String(newTracker.writes))
+  check('[5] 新容器钉回最新底部', newScroller.scrollTop === 19080, String(newScroller.scrollTop))
+
+  ctrl.stop()
+  env.clearTimers()
 }
 
 {

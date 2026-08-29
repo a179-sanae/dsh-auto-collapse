@@ -897,7 +897,14 @@ export class FoldController {
    * 找不到时不缓存（内容增长后祖先可能变为可滚动），每 pass 重探的代价
    * 只是几次 clean-layout 的 computed style / scrollHeight 读取。 */
   private findScrollContainer(flow: HTMLElement): HTMLElement | null {
-    if (this.scrollContainerFlow === flow && this.scrollContainer !== null && this.scrollContainer.isConnected) {
+    if (
+      this.scrollContainerFlow === flow
+      && this.scrollContainer !== null
+      && this.scrollContainer.isConnected
+      // flow 可能在同一节点生命周期内被 React 重新挂到新的滚动容器；
+      // 仅检查 isConnected 会继续向旧容器写入 scrollTop。
+      && nodeWithin(flow, this.scrollContainer)
+    ) {
       return this.scrollContainer
     }
     let node: HTMLElement | null = flow.parentElement
