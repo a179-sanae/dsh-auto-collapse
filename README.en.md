@@ -3,6 +3,8 @@
 > A DeepSeek Harness Web client plugin that auto-collapses tool cards and Think blocks into one-line summaries, so the chat keeps only what the model says.
 >
 > 中文: [README.md](./README.md)
+>
+> This plugin is listed in the Plugin marketplace: [marketplace link](https://www.dsh.so/artifact/dsh-auto-collapse/)
 
 ## What it does
 
