@@ -4,7 +4,7 @@
 >
 > English: [README.en.md](./README.en.md)
 >
-> 插件市场（Plugin marketplace）：[dsh.so](https://www.dsh.so/artifact/dsh-auto-collapse/)
+> 本插件已收录到插件市场（Plugin marketplace）：[市场链接](https://www.dsh.so/artifact/dsh-auto-collapse/)
 
 ## 这是什么
 

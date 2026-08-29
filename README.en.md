@@ -4,7 +4,7 @@
 >
 > 中文: [README.md](./README.md)
 >
-> Plugin marketplace: [dsh.so](https://www.dsh.so/artifact/dsh-auto-collapse/)
+> This plugin is listed in the Plugin marketplace: [marketplace link](https://www.dsh.so/artifact/dsh-auto-collapse/)
 
 ## What it does
 
