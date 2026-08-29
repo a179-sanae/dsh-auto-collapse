@@ -50,7 +50,7 @@ src/client.ts     浏览器端入口（注册插件）
 src/index.ts      host half（宿主端，Host half）
 build.mjs         构建脚本（Build script）：生成 lib/client.js、lib/index.js 与 lib/types/*
 tsconfig.build.json TypeScript 声明构建配置（Declaration build config）
-deploy.mjs        安全部署：校验 → 备份 → 替换 → 身份核验重启 → 哈希验证/回滚（DSH web 输出持久化到 ~/.dsh/logs/web.{out,err}.log）
+deploy.mjs        安全部署（Safe deploy）：校验 → 备份 → 替换 → 身份核验重启 → 哈希验证/回滚（DSH web 输出持久化到 ~/.dsh/logs/web.{out,err}.log）；Windows 使用 PowerShell，Linux/macOS 使用 lsof + ps
 cordis.patch.yml  profile 树挂载
 test/             fake DOM 契约、竞态、会话切换与 40 组乱序排列回归
 ```
@@ -69,7 +69,7 @@ npm run check
 npm run deploy
 ```
 
-脚本先核验插件/DSH 包名和 3080 监听进程身份，再做时间戳备份、替换、重启与服务端哈希验证；失败自动恢复旧 bundle。可用 `DSH_AUTO_COLLAPSE_LIB`、`DSH_DIR`、`DSH_WEB_PORT`、`DSH_LOG_DIR` 覆盖默认路径。
+脚本先核验插件/DSH 包名和 3080 监听进程身份，再做时间戳备份、替换、重启与服务端哈希验证；失败自动恢复旧 bundle。支持 Windows、Linux 和 macOS；Unix 系统默认从 `npm root -g` 定位 DSH 包，并使用 `HOME` 定位 profile。Linux/macOS 需要安装 `lsof`。可用 `DSH_AUTO_COLLAPSE_LIB`、`DSH_DIR`、`DSH_WEB_PORT`、`DSH_LOG_DIR` 覆盖默认路径。
 
 ### 发布新版本
 
