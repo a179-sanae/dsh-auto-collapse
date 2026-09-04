@@ -25,7 +25,17 @@
 - **Configurable status text**: in Settings → Plugins → Plugin configuration, edit the status prompt (default `Deep sleeping...`); leaving it blank restores the official copy (“深度求索中...” in current builds). The host-appended elapsed suffix (e.g. `33秒`) is preserved.
 - **Fully reversible**: uninstalling (HMR stop) restores every collapsed/hidden/rewritten node.
 
+## Compatibility
+
+| Plugin version | DSH compatibility |
+|---|---|
+| 0.1.7 | **DSH 0.1.2-rc.1+** (new settings API, native turn-process rows, Chinese status copy) |
+| ≤ 0.1.6 | DSH 0.1.1.x |
+
+Since 0.1.7 the plugin no longer depends on the removed `@deepseek-ai/dsh-settings` exports (the host half wires an optional consumer), but client service injection relies on 0.1.2's `dsh-client-modules` and has not been verified on 0.1.1. DSH 0.1.1 users should stay on 0.1.6.
+
 ## Install
+
 
 Published npm package (recommended; uses the prebuilt release):
 
