@@ -29,10 +29,11 @@
 
 | Plugin version | DSH compatibility |
 |---|---|
-| 0.1.7 | **DSH 0.1.2-rc.1+** (new settings API, native turn-process rows, Chinese status copy) |
+| 0.1.8 | **DSH 0.1.2-rc.1+** (reconnectable settings lifecycle, native turn-process rows, Chinese status copy) |
+| 0.1.7 | DSH 0.1.2-rc.1+ (initial support; the settings card can be absent under startup races, so upgrade to 0.1.8) |
 | ≤ 0.1.6 | DSH 0.1.1.x |
 
-Since 0.1.7 the plugin no longer depends on the removed `@deepseek-ai/dsh-settings` exports (the host half wires an optional consumer), but client service injection relies on 0.1.2's `dsh-client-modules` and has not been verified on 0.1.1. DSH 0.1.1 users should stay on 0.1.6.
+Since 0.1.7 the plugin no longer depends on the removed `@deepseek-ai/dsh-settings` exports (the host half wires an optional consumer). Since 0.1.8 the client waits for and reconnects `settingsScope` / `slots` through `ctx.inject()`, so late services cannot permanently drop the settings card. Client injection relies on 0.1.2's `dsh-client-modules` and has not been verified on 0.1.1. DSH 0.1.1 users should stay on 0.1.6.
 
 ## Install
 

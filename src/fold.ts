@@ -3083,8 +3083,20 @@ function replaceTurnStatus(flow: HTMLElement, originals: Map<Text, { original: s
     : [...flow.querySelectorAll<HTMLElement>('[role="status"]')]
   for (const status of statuses) {
     for (const node of status.childNodes) {
-      if (node instanceof Text && TURN_STATUS_COPY_RE.test(node.data)) {
-        let record = originals.get(node)
+      if (!(node instanceof Text)) continue
+      let record = originals.get(node)
+      // 设置从一个非空自定义值改成另一个时，节点仍是插件上次
+      // 写入的 written，不再含官方前缀。此时应直接以 original 为模板
+      // 重写，否则 refresh() 虽运行了，当前回合仍会一直显示旧设置。
+      if (record !== undefined && node.data === record.written) {
+        const next = record.original.replace(TURN_STATUS_COPY_RE, statusText)
+        if (node.data !== next) {
+          node.data = next
+          record.written = next
+        }
+        continue
+      }
+      if (TURN_STATUS_COPY_RE.test(node.data)) {
         if (record === undefined) {
           record = { original: node.data, written: '' }
           originals.set(node, record)

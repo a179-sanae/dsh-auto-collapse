@@ -12,6 +12,7 @@ const files = [
   'test/adversarial-session.mjs',
   'test/external-display.test.mjs',
   'test/lifecycle.test.mjs',
+  'test/client-settings-lifecycle.test.mjs',
   'test/issue14-followup.test.mjs',
   'test/deploy-platform.test.mjs',
   'test/turn-process.test.mjs',

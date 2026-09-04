@@ -142,12 +142,28 @@ const CARD_CSS = `
 
 const STYLE_ID = 'dshcf-settings-style'
 
+/** HMR / service 重连可以短暂存在多个卡片注册者；引用计数避免
+ * 一个迟到 cleanup 把新注册者正在使用的样式删掉。 */
+let styleOwners = 0
+
 function injectCardStyle(): void {
   if (typeof document === 'undefined' || document.getElementById(STYLE_ID) !== null) return
   const style = document.createElement('style')
   style.id = STYLE_ID
   style.textContent = CARD_CSS
   document.head.appendChild(style)
+}
+
+function acquireCardStyle(): () => void {
+  styleOwners += 1
+  injectCardStyle()
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    styleOwners = Math.max(0, styleOwners - 1)
+    if (styleOwners === 0 && typeof document !== 'undefined') document.getElementById(STYLE_ID)?.remove()
+  }
 }
 
 function ChevronIcon(open: boolean): any {
@@ -278,13 +294,25 @@ function StatusTextCard(props: { scope: SettingsScopeLike }): any {
 
 /** 向 DSH 插件配置页注册“状态提示词”卡片。 */
 export function setupSettingsCard(ctx: { slots: SlotsLike }, scope: SettingsScopeLike): () => void {
-  injectCardStyle()
-  return ctx.slots.inject('settings.plugin.item', () => ctx.slots.register(
-    {
-      name: 'settings.plugin.item',
-      key: AUTO_COLLAPSE_NS,
-      inject: () => ({ scope }),
-    },
-    StatusTextCard,
-  ))
+  const releaseStyle = acquireCardStyle()
+  try {
+    const offSlot = ctx.slots.inject('settings.plugin.item', () => ctx.slots.register(
+      {
+        name: 'settings.plugin.item',
+        key: AUTO_COLLAPSE_NS,
+        inject: () => ({ scope }),
+      },
+      StatusTextCard,
+    ))
+    return () => {
+      try {
+        offSlot()
+      } finally {
+        releaseStyle()
+      }
+    }
+  } catch (error) {
+    releaseStyle()
+    throw error
+  }
 }
