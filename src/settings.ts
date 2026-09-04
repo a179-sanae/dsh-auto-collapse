@@ -205,7 +205,7 @@ function StatusTextCard(props: { scope: SettingsScopeLike }): any {
     setFailed(false)
     try {
       // 显式“恢复默认”才清除 user layer，回落到 schema 默认 Deep sleeping...
-      // 手动清空并保存则是写入空字符串：让插件停止替换，恢复官方 Deep diving...
+      // 手动清空并保存则是写入空字符串：让插件停止替换，恢复官方原文（深度求索中...）
       if (pending.reset) await scope.unset('statusText')
       else await scope.set('statusText', pending.text.trim())
       setPending(null)
@@ -232,7 +232,7 @@ function StatusTextCard(props: { scope: SettingsScopeLike }): any {
       [
         React.createElement('span', { className: 'dshcf-settings-headText' }, [
           React.createElement('span', { className: 'dshcf-settings-name' }, '状态提示词'),
-          React.createElement('span', { className: 'dshcf-settings-description' }, '自定义状态提示词，可以替换原有的Deep diving...一行，由插件dsh-auto-collapse提供'),
+          React.createElement('span', { className: 'dshcf-settings-description' }, '自定义状态提示词，可以替换原有的运行状态文案（深度求索中...），由插件dsh-auto-collapse提供'),
         ]),
         dirty ? React.createElement('span', { className: 'dshcf-settings-pending' }, '未保存') : null,
         ChevronIcon(open),
@@ -258,11 +258,11 @@ function StatusTextCard(props: { scope: SettingsScopeLike }): any {
               className: 'dshcf-settings-input',
               type: 'text',
               value: text,
-              placeholder: 'Deep diving...',
+              placeholder: '深度求索中...',
               disabled: !writable,
               onChange: (event: { target: { value: string } }) => edit(event.target.value),
             }),
-            React.createElement('p', { className: 'dshcf-settings-hint' }, '为空时恢复默认Deep diving...提示词状态'),
+            React.createElement('p', { className: 'dshcf-settings-hint' }, '为空时恢复官方默认文案（深度求索中...）'),
           ]),
           React.createElement('div', { className: 'dshcf-settings-footer' }, [
             failed

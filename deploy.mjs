@@ -3,7 +3,7 @@
  * 进程 → 校验服务端 bundle。任一步失败都会恢复备份并重启旧版本。
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 import net from 'node:net'
 import {
   closeSync,
@@ -11,6 +11,7 @@ import {
   existsSync,
   mkdirSync,
   openSync,
+  statSync,
   readFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
@@ -80,6 +81,7 @@ export function resolveDeployPaths(env = process.env, platform = process.platfor
     dshDir: defaultDshDir,
     webPort,
     logDir: env.DSH_LOG_DIR ?? join(userHome, '.dsh/logs'),
+    dshHome: env.DSH_HOME ?? join(userHome, '.dsh'),
   }
 }
 
@@ -88,6 +90,7 @@ const {
   dshDir: DSH_DIR,
   webPort: WEB_PORT,
   logDir: LOG_DIR,
+  dshHome: DSH_HOME,
 } = resolveDeployPaths()
 
 function readPackageName(directory) {
@@ -193,18 +196,25 @@ function terminateProcess(pid, force = false) {
   }
 }
 
-function isExpectedDshWeb(processInfo) {
-  const command = String(processInfo.commandLine ?? '').replaceAll('\\', '/').toLowerCase()
-  const expectedDir = resolve(DSH_DIR).replaceAll('\\', '/').toLowerCase()
+export function isExpectedDshWeb(processInfo, dshDir = DSH_DIR) {
+  // Win32_Process.CommandLine 经 CIM 返回时可能含双反斜杠（如 npm\\node_modules），
+  // 先统一为单斜杠再比对，否则合法 DSH 进程会被误判为陌生进程而拒绝停止。
+  const slash = (value) => String(value ?? '').replaceAll('\\', '/').replace(/\/{2,}/g, '/').toLowerCase()
+  const command = slash(processInfo.commandLine)
+  // 跨平台纯字符串比对：这里不能用 resolve()——Linux 上 resolve('C:/...')
+  // 会把另一平台的路径样式解析成 cwd 相对路径，导致比对永远失败
+  // （CI deploy-platform.test.mjs:125；真机上 dshDir 恒为本地绝对路径，
+  // 分隔符与大小写归一已由 slash() 完成）。
+  const expectedDir = slash(dshDir).replace(/\/+$/, '')
   const absoluteEntry = command.includes(expectedDir) && command.includes('lib/bin.js')
   const legacyRelativeEntry = /(?:^|\s)["']?lib\/bin\.js["']?(?:\s|$)/.test(command)
   return (absoluteEntry || legacyRelativeEntry) && /\bweb\b/.test(command)
 }
 
-async function stopExpectedWeb() {
+async function stopExpectedWeb(cookie = null) {
   const active = listeners()
   if (active.length > 0) {
-    const html = (await fetchBytes(`http://127.0.0.1:${WEB_PORT}/`)).toString('utf8')
+    const html = await fetchHomeHtml(WEB_PORT, cookie)
     if (!html.includes('dsh-auto-collapse/client.js')) {
       throw new Error(`端口 ${WEB_PORT} 的页面不是当前 DSH profile，拒绝停止`)
     }
@@ -282,33 +292,219 @@ function startWeb() {
   }
 }
 
-async function fetchBytes(url) {
-  const response = await fetch(url, { signal: AbortSignal.timeout(8000) })
+async function fetchBytes(url, headers = {}) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(8000), headers })
   if (!response.ok) throw new Error(`${url} 返回 HTTP ${response.status}`)
   return Buffer.from(await response.arrayBuffer())
 }
 
-async function verifyServedBundle(expectedHash) {
+
+/** 从单行日志提取该端口的 launch token；不匹配返回 null（0.1.1 日志无 token 行）。 */
+export function parseLaunchTokenLine(line, port) {
+  const match = String(line ?? '').match(/[?&]token=([A-Za-z0-9_-]+)/)
+  if (match === null) return null
+  if (!String(line).includes(`:${port}/`) && !String(line).includes(`:${port}?`)) return null
+  return match[1]
+}
+
+/** 从一段日志文本找该端口最新（最后）的 launch token；没有返回 null。 */
+export function findLatestLaunchToken(text, port) {
+  let latest = null
+  for (const line of String(text ?? '').split(/\r?\n/)) {
+    const token = parseLaunchTokenLine(line, port)
+    if (token !== null) latest = token
+  }
+  return latest
+}
+
+/** Set-Cookie 头数组拼成 Cookie 请求头（只取 name=value 段）。 */
+export function buildCookieHeader(setCookieHeaders) {
+  const parts = []
+  for (const header of setCookieHeaders ?? []) {
+    const pair = String(header).split(';', 1)[0].trim()
+    if (pair !== '') parts.push(pair)
+  }
+  return parts.join('; ')
+}
+
+/** base64url 编解码（cookie 自签用，不引入外部依赖）。 */
+function base64UrlEncode(bytes) {
+  return Buffer.from(bytes).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+/** 从 DSH_HOME/.credentials.yaml 读浏览器会话签名密钥。
+ *  文件/记录缺失返回 null（调用方回退到 token 交换或匿名路径）。
+ */
+export function readBrowserSessionSecret(dshHome) {
+  let text
+  try {
+    text = readFileSync(join(dshHome, '.credentials.yaml'), 'utf8')
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null
+    throw error
+  }
+  const lines = String(text).split(/\r?\n/)
+  const keyIndex = lines.findIndex(line => line.trim() === 'client-connection/browser-session:')
+  if (keyIndex === -1) return null
+  for (let i = keyIndex + 1; i < lines.length; i++) {
+    const line = lines[i]
+    // 缩进退回同级或更浅即离开该记录块。
+    if (/^(\S|  \S)/.test(line)) break
+    const match = line.match(/^\s*secret:\s*([A-Za-z0-9_-]+)\s*$/)
+    if (match !== null) return match[1]
+  }
+  return null
+}
+
+/** 用持久签名密钥自签浏览器会话 cookie（0.1.2 BrowserAuth 兼容格式）。
+ *  secret 缺失/非法返回 null。有效期固定 10 分钟，远小于任何合理的
+ *  cookieMaxAgeDays 服务端上限，且只够 deploy 当次校验使用。 */
+export function mintBrowserCookie(port, secretBase64Url) {
+  let secret
+  try {
+    secret = Buffer.from(String(secretBase64Url ?? ''), 'base64url')
+    if (secret.length !== 32) return null
+  } catch {
+    return null
+  }
+  const authority = `127.0.0.1:${port}`
+  const name = `dsh-auth-${base64UrlEncode(createHash('sha256').update(authority).digest())}`
+  const now = Date.now()
+  const body = base64UrlEncode(Buffer.from(JSON.stringify({
+    version: 1,
+    authority,
+    issuedAt: now,
+    expiresAt: now + 600000,
+  }), 'utf8'))
+  const signature = base64UrlEncode(createHmac('sha256', secret).update(body).digest())
+  return `${name}=v1.${body}.${signature}`
+}
+
+/** 从首页 HTML 的 __DSH_BOOT__ 图里找插件的 combo 服务地址；找不到返回 null。 */
+export function findBootEntryUrl(html, pluginId) {
+  const text = String(html ?? '')
+  const match = text.match(/__DSH_BOOT__"\]\s*=\s*(\{.*?\})\s*;?\s*<\/script>/s)
+  if (match === null) return null
+  let graph
+  try {
+    graph = JSON.parse(match[1])
+  } catch {
+    return null
+  }
+  const entries = graph?.entries
+  if (!Array.isArray(entries)) return null
+  const entry = entries.find(item => item?.id === pluginId)
+  return typeof entry?.url === 'string' ? entry.url : null
+}
+
+/** 按 0.1.2 client-modules 的 combo 拼装规则，本地复刻单条记录的服务端字节：
+ *  去 trailer → 保底换行 → ';' + 换行 → sourceMappingURL 尾行（与 buildCombo/
+ *  comboSource/comboScript 逐字对应，含随机 rev 的 map 地址由实测 bundleUrl 传入）。
+ *  用于部署校验：比对“服务端实际吐出的字节”，而非构建产物裸文件。 */
+export function expectedComboBytes(bundleBuffer, bundleUrl) {
+  let source = Buffer.from(bundleBuffer).toString('utf8')
+  source = source
+    .replace(/(?:\r?\n)?\/\/# sourceURL=([^\r\n]+)(?:\r?\n)?$/, '')
+    .replace(/(?:\r?\n)?\/\/# sourceMappingURL=[^\r\n]*(?:\r?\n)?$/, '')
+  if (!source.endsWith('\n')) source += '\n'
+  const mapUrl = String(bundleUrl).replace('client.js&rev=', 'client.js.map&rev=')
+  return Buffer.from(`${source};\n//# sourceMappingURL=${mapUrl}\n`)
+}
+
+/** 用 launch token 换浏览器会话 cookie（0.1.2 鉴权模型）。
+ *  成功返回可直接用作 Cookie 请求头的值；token 无效时返回 null。 */
+async function exchangeCookie(port, token) {
+  const url = `http://127.0.0.1:${port}/?token=${token}`
+  let response
+  try {
+    response = await fetch(url, { signal: AbortSignal.timeout(8000), redirect: 'manual' })
+  } catch {
+    // 端口无服务（全新部署）或连接失败：视为无会话，调用方走匿名路径。
+    return null
+  }
+  if (response.status !== 303 && response.status !== 302) return null
+  const cookies = typeof response.headers.getSetCookie === 'function'
+    ? response.headers.getSetCookie()
+    : []
+  const header = buildCookieHeader(cookies)
+  return header === '' ? null : header
+}
+
+/** 解析 web 会话 cookie：token 交换优先（精确绑定进程），持久密钥自签兜底
+ *  （手动启动的旧进程等无日志 token 场景），最后回退匿名（0.1.1）。 */
+async function resolveWebCookie(port, logDir, startMarker = 0) {
+  const outLog = join(logDir, 'web.out.log')
+  const readTail = () => {
+    try {
+      const data = readFileSync(outLog, 'utf8')
+      return startMarker > 0 ? data.slice(startMarker) : data
+    } catch (error) {
+      if (error?.code === 'ENOENT') return ''
+      throw error
+    }
+  }
+  const deadline = Date.now() + (startMarker > 0 ? 15000 : 0)
+  const tried = new Set()
+  for (;;) {
+    const token = findLatestLaunchToken(readTail(), port)
+    if (token !== null && !tried.has(token)) {
+      tried.add(token)
+      const cookie = await exchangeCookie(port, token)
+      if (cookie !== null) return cookie
+    }
+    if (Date.now() > deadline) {
+      const secret = readBrowserSessionSecret(DSH_HOME)
+      return secret === null ? null : mintBrowserCookie(port, secret)
+    }
+    await sleep(500)
+  }
+}
+
+/** 带会话的首页抓取：cookie 优先，匿名回退（0.1.1 兼容）。 */
+async function fetchHomeHtml(port, cookie) {
+  const url = `http://127.0.0.1:${port}/`
+  if (cookie !== null) {
+    return (await fetchBytes(url, { Cookie: cookie })).toString('utf8')
+  }
+  return (await fetchBytes(url)).toString('utf8')
+}
+async function verifyServedBundle(builtPath, cookie = null) {
   // 新进程可能经 cordis 慢重试才完成端口绑定（EADDRINUSE 竞态），轮询等服务就绪
   const deadline = Date.now() + 30000
   let html
+  const headers = cookie === null ? {} : { Cookie: cookie }
   for (;;) {
     try {
-      html = (await fetchBytes(`http://127.0.0.1:${WEB_PORT}/`)).toString('utf8')
+      html = await fetchHomeHtml(WEB_PORT, cookie)
       break
     } catch (error) {
       if (Date.now() > deadline) throw error
       await sleep(500)
     }
   }
-  const match = html.match(/dsh-auto-collapse\/client\.js\?rev=([a-f0-9]+)/)
-  if (match === null) throw new Error('首页未找到 dsh-auto-collapse client 入口')
+  // 0.1.2 的 combo 服务地址含随机 rev，只能从 __DSH_BOOT__ 图里取精确 URL；
+  // 0.1.1（一行式 ?rev= 哈希）走正则回退。
+  let bundleUrl = findBootEntryUrl(html, 'dsh-auto-collapse')
+  let expected
+  if (bundleUrl === null) {
+    // 0.1.1（一行式 ?rev= 哈希）：服务端吐裸文件，直接比构建产物。
+    const legacy = html.match(/dsh-auto-collapse\/client\.js\?rev=([a-f0-9]+)/)
+    if (legacy === null) {
+      throw new Error('首页未找到 dsh-auto-collapse client 入口：插件可能在 marketplace 被禁用，或 client 未被宿主收录')
+    }
+    bundleUrl = `/plugins/dsh-auto-collapse/client.js?rev=${legacy[1]}`
+    expected = sha256File(builtPath)
+  } else {
+    // 0.1.2 combo：服务端吐拼装后字节，按同规则本地复刻再比。
+    expected = sha256Bytes(expectedComboBytes(readFileSync(builtPath), bundleUrl))
+  }
   const bytes = await fetchBytes(
-    `http://127.0.0.1:${WEB_PORT}/plugins/dsh-auto-collapse/client.js?rev=${match[1]}`,
+    `http://127.0.0.1:${WEB_PORT}${bundleUrl}`,
+    headers
   )
   const servedHash = sha256Bytes(bytes)
-  if (servedHash !== expectedHash) throw new Error(`服务端 bundle 哈希不匹配: ${servedHash}`)
-  return match[1]
+  if (servedHash !== expected) throw new Error(`服务端 bundle 哈希不匹配: ${servedHash}`)
+  return bundleUrl
 }
 
 async function main() {
@@ -347,17 +543,27 @@ async function main() {
     if (sha256File(target) !== expectedHash) throw new Error('复制后哈希不一致')
 
     console.log('[3/5] 核验并停止旧 DSH web')
-    const stopped = await stopExpectedWeb()
+    // 旧进程的 launch token 在历史日志里（startMarker=0 全量扫描）；0.1.1 无 token 则走匿名。
+    const oldCookie = await resolveWebCookie(WEB_PORT, LOG_DIR)
+    const stopped = await stopExpectedWeb(oldCookie)
     console.log(`      已停止 ${stopped} 个已确认进程`)
 
     console.log('[4/5] 启动 DSH web')
+    // 记录启动前日志位点：只认新进程打印的 launch token，避免误用历史 token。
+    let logMarker = 0
+    try {
+      logMarker = statSync(join(LOG_DIR, 'web.out.log')).size
+    } catch {
+      logMarker = 0
+    }
     const pid = startWeb()
     console.log(`      新进程 PID ${pid}`)
     await sleep(4000)
 
     console.log('[5/5] 验证服务端 bundle')
-    const revision = await verifyServedBundle(expectedHash)
-    console.log(`      rev=${revision} sha256=${expectedHash.slice(0, 12)}...`)
+    const newCookie = await resolveWebCookie(WEB_PORT, LOG_DIR, logMarker)
+    const servedUrl = await verifyServedBundle(built, newCookie)
+    console.log(`      url=${servedUrl} sha256=${expectedHash.slice(0, 12)}...`)
     console.log('\n部署完成；浏览器刷新后生效。')
   } catch (error) {
     console.error(`\n部署失败: ${error instanceof Error ? error.message : String(error)}`)
@@ -365,7 +571,8 @@ async function main() {
       console.error('正在恢复备份并重启旧版本...')
       for (const { target: t, backup: b } of replaced) copyFileSync(b, t)
       try {
-        await stopExpectedWeb()
+        const rollbackCookie = await resolveWebCookie(WEB_PORT, LOG_DIR)
+        await stopExpectedWeb(rollbackCookie)
         startWeb()
         await sleep(2000)
         console.error('旧 bundle 已恢复。')

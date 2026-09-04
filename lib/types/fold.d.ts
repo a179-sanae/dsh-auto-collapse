@@ -12,10 +12,11 @@
  *   - 全部完成 → 标题 = 类型总结（编辑了文件 / 运行了命令 / 已思考 /
  *     上下文注入），摘要清空；出错 → 红色，中断 → 琥珀。
  *
- * 另外把官方 ChatView 尾部的运行状态行文字 "Deep diving..." 替换为
- * 可配置的状态提示词（默认 "Deep sleeping..."；流光特效在 CSS 上，
- * 替换文本节点不影响）。React 重渲染会恢复原文，pass() 每轮自愈改回。
- * 设置为空时不替换，等价于恢复官方 "Deep diving..."。
+ * 另外把官方 ChatView 尾部的运行状态行文字（新版 "深度求索中..." / 旧版
+ * "Deep diving..."，见 TURN_STATUS_COPY_RE）替换为可配置的状态提示词
+ * （默认 "Deep sleeping..."；流光特效在 CSS 上，替换文本节点不影响，
+ * 宿主追加的用时后缀原样保留）。React 重渲染会恢复原文，pass() 每轮自愈改回。
+ * 设置为空时不替换，等价于恢复官方原文。
  *
  * 点击一行展开，再点收起；折叠态下若有行被选中（详情联动）自动展开。
  *
@@ -81,6 +82,7 @@ export declare class FoldController {
     /** 自上次 pass 以来子树发生变化的 flow 顶层消息；pass 开头统一失效。 */
     private dirtyMessages;
     /** 在途显示动画（元素 → 记录）：冲突仲裁、记账对齐与生命周期清理的依据。
+    /** 在途显示动画（元素 → 记录）：冲突仲裁、记账对齐与生命周期清理的依据。
      * 用 Map 不用 WeakMap——switchFlow/stop 需要遍历全量 cancel。 */
     private pendingAnims;
     /** 手势点击的一次性可动画 block key；segment 级点击另保留中间正文的门控。 */
@@ -98,6 +100,20 @@ export declare class FoldController {
      * attributes 批次（流式文本、data-state 翻转）不改变块结构，跳过全量
      * querySelectorAll 重扫（issue #14：长会话下每轮重扫造成主线程卡顿）。 */
     private structureDirty;
+    /** 本轮 pass 的原生 turn 摘要快照（turn id → 开合态）：每轮重建，不跨轮复用；
+     * data-open 翻转不改变块结构也能驱动重算，见 buildNativeTurnMap。 */
+    private nativeTurns;
+    /** 被折叠掏空后藏起的中间包装层（真机 44px vs 28px 真因：think 行全隐后
+     * 其父容器变零高度空壳，仍作为 flex item 参与父级 gap，凭空多出 16px）。
+     * 内容恢复（展开/流式追加/块转世）时同函数恢复显示；switchFlow 清空。 */
+    private emptiedWrappers;
+    /** 本轮 pass 内有过 display 实写（hide/restore 瞬时路径）。空洞发现的触发
+     * 条件之一：纯 display 收放不产生 childList，不触发 structureDirty。
+     * settle 触发的后续 pass 则由 settleFired 覆盖。读后即清（见发现调用点）。 */
+    private displayTouched;
+    /** 有 fade 自然结算过（chipSettle 跑过）。结算本身不写 display，但它意味着
+     * 某行刚变隐藏——空洞可能刚形成。 */
+    private settleFired;
     /** 滚动稳定化（issue #14）：flow 最近的滚动容器缓存（按 flow 身份失效）。 */
     private scrollContainer;
     private scrollContainerFlow;
@@ -165,7 +181,39 @@ export declare class FoldController {
     private createProcessedRow;
     private syncProcessedRow;
     private placeProcessedRow;
+    /** 原生收起时隐藏本块插件自有 overlay（chip/合并行+内容块）：只做
+     * display 直写，不清钉住之外的账本、不删展开态，供原生再展开后复用。
+     * 在途 WAAPI 动画不追踪取消——收尾回调只做幂等终态对齐，无残留。 */
+    private hideOverlayForNativeCollapse;
     private reconcileBlock;
+    /**
+     * 掏空包装层对账（真机 44px vs 28px 真因修复）。
+     *
+     * 折叠把某容器的子行全部 display:none 后，该容器变零高度空壳，但仍是
+     * 父级 flex 的 item 并参与 gap（如正文体 flex-column gap:16px），凭空多出
+     * 一份间距。隐藏这类空壳可让 gap 塌缩；子内容恢复可见（展开/流式追加/
+     * 块转世）时恢复显示。
+     *
+     * 安全边界：
+     * - 只看 block.host 内部、不含 host 本人（宿主显隐归 segment 逻辑）；
+     * - 跳过结构 seat（data-chat-flow-kind / data-chat-anchor-key）与插件
+     *   自身 overlay（dshcf- 前缀类）；
+     * - 只隐藏内容空洞（无可见子内容）：零高度无文本的空壳 display:none 与
+     *   保持显示像素一致，只塌缩父级 gap；任何一方恢复内容即恢复显示。
+     */
+    /**
+     * 空洞包装层兜底发现：按宿主直扫 div（仅结构变化轮次调用）。
+     * 只做隐藏侧：空洞即藏并记入 tracked；恢复侧由 syncEmptiedWrappers 的
+     * tracked 复核与 audit 承担。与按行 walk 共用同一安全边界（结构 seat /
+     * 插件 overlay / 宿主本人不碰）。
+     */
+    private discoverHollowWrappers;
+    private syncEmptiedWrappers;
+    /** 内容空洞判定：无可见子内容（文本/元素任一可见即非空洞）。隐藏者是谁
+     * 不重要——零高度无文本节点 display:none 与保持显示像素一致（只塌缩父级
+     * gap，正是要修的幻影）；任何一方恢复内容，下轮 pass/audit 即恢复显示。
+     * isDisplayed 走 getComputedStyle（桩内退化为内联，语义一致）。 */
+    private isHollow;
     private ensureChip;
     private suppressBlock;
     private retainDisplayControl;
@@ -249,6 +297,17 @@ export declare class FoldController {
      * 淡完 onfinish 写 display:none 并保持双条目（镜像 hideElement 终态契约）。
      * fill:'forwards' 占位到终态写入后释放；无几何锁、无 gap 补偿。 */
     private startFadeCollapse;
+    /**
+     * 收起 fade 终态结算（onfinish 与僵尸收割共用）。仅被同元素新动画
+     * supersede 时早退；被 sweep 删账（元素已断连）或收割时仍执行 settle——
+     * 回调经 controller 可达，动画必然触发 onfinish，早退会把 chip 内联 16px
+     * 钉住永久残留。重挂载同节点不可能（React 只建新节点），重启动的新动画
+     * 由第一条守卫覆盖，无误伤。
+     */
+    private finishFadeCollapse;
+    /** 动画是否已播完（终态未结算）：finish 事件丢失时的兜底判定。WAAPI 桩
+     * 无 playState/effect 时一律 false，走正常事件路径，测试行为不变。 */
+    private isAnimOverdue;
     /** 轻量视觉 reveal（opacity + 4px 微位移）：用于插件全资元素的即时显示
      * 路径——chip（一级展开时出现）与 merged-think 行（二级展开时出现）。
      * 这些元素的 display 完全由插件直写、无 React 协调竞争，因此不入

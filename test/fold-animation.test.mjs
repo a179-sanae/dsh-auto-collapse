@@ -1122,6 +1122,195 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms))
   assert(contextChip.style.marginBottom === '', 'flow-chip settle 后无残留', contextChip.style.marginBottom)
   cleanup()
 }
+// ---------------------------------------------------------------------------
+// 场景 M-5：在途行被 detach + sweep 删账，迟到 onfinish 仍 settle——
+// pin 不残留（真机 44px vs 28px：流式末尾 React 整体替换宿主子节点，
+// 收起 fade 在途 + sweep 先于 onfinish + 此后再无 pass，chip 内联 16px
+// 与 has-body 16px 叠成 32px）。
+// 机制：回调经 controller 可达，动画必然触发 onfinish；仅 supersede 早退，
+// sweep 掉线仍执行 settle。cleanup 只 remove 不清 margin，断言落在被移除
+// 的 chip 引用上仍能区分修复前后。
+// ---------------------------------------------------------------------------
+{
+  console.log('\n=== 场景 M-5: detach+sweep 后迟到 onfinish 仍 settle ===')
+  const { env, document, flow, register, cleanup } = boot()
+  const { t1, row } = buildTurn(flow)
+  document.body.appendChild(flow)
+  register()
+  await env.tick(); await env.tick()
+  flow.querySelector('.dshcf-processed').dispatchEvent('click')  // 一级展开
+  await env.tick()
+  const chip = t1.querySelector('.dshcf-chip')
+  assert(chip !== null, 'chip 存在')
+  chip.dispatchEvent('click')  // 二级展开
+  await env.tick()
+  chip.dispatchEvent('click')  // 二级收起（手势，单行 fade 启动）
+  env.notifyMutations(); env.flushRaf()
+  assert(chip.style.marginBottom === '16px', '收起 fade 期间间距钉住 16px', chip.style.marginBottom)
+  // React 整体替换宿主子节点：在途行断连（桩定时器仍会触发 onfinish，
+  // 镜像生产闭包经 controller 可达、动画必然结算）。
+  row.remove()
+  // 下一个 pass 先于桩 onfinish：sweep 删掉断连行的账本（settle 丢失），
+  // 块随之解散、chip 被 cleanup 移除（不清 margin）。
+  env.notifyMutations(); env.flushRaf()
+  assert(chip.isConnected === false, '块解散后 chip 被移除')
+  // 迟到 onfinish 触发：修复前早退、pin 残留；修复后 settle 归零。
+  await new Promise(r => setTimeout(r, 15))
+  env.flushRaf()
+  assert(chip.style.marginBottom === '', '迟到 onfinish 仍 settle、pin 不残留', chip.style.marginBottom)
+  cleanup()
+}
+// ---------------------------------------------------------------------------
+// 场景 M-6：掏空包装层塌缩（真机 44px vs 28px 真因）——think 行全隐后其中
+// 间包装层（生产 hWmORq_body 一类：flex-column gap 容器）变零高度空壳仍
+// 参与 gap，凭空多出 16px；隐藏空壳塌缩 gap，展开恢复。
+// 关键时序：收起 fade 在途时行 display 还在，空壳保留（动画不受损）；
+// settle 后才隐藏。
+// ---------------------------------------------------------------------------
+{
+  console.log('\n=== 场景 M-6: 掏空包装层塌缩 ===')
+  const { env, document, flow, register, cleanup } = boot()
+  const user = seat(flow, 'user', 'u1', 40)
+  textNode('问个问题', user)
+  const thinkSeat = seat(flow, 'assistant-step', 'a1', 80)
+  const slot = el('div', {}, thinkSeat)  // 无 class/kind 中间包装（生产 hWmORq_body 位置）
+  makeThinkRow({ summary: '第一段思考', parent: slot })
+  makeThinkRow({ summary: '第二段思考', parent: slot })
+  addBodyText(thinkSeat, '最终正文')
+  const tail = seat(flow, 'turn-tail', 'tt1', 24)
+  textNode('用时 3秒', tail)
+  document.body.appendChild(flow)
+  register()
+  await env.tick(); await env.tick()
+  flow.querySelector('.dshcf-processed').dispatchEvent('click')  // 一级展开
+  await env.tick()
+  const chip = thinkSeat.querySelector('.dshcf-chip')
+  assert(chip !== null, 'chip 存在')
+  chip.dispatchEvent('click')  // 二级展开
+  await env.tick()
+  assert(slot.style.display === '', '展开态包装层可见')
+  chip.dispatchEvent('click')  // 二级收起（手势，merged 行 fade 启动）
+  env.notifyMutations(); env.flushRaf()
+  assert(slot.style.display === '', 'fade 在途时包装层保留（动画不受损）', slot.style.display)
+  await new Promise(r => setTimeout(r, 15))  // settle + 后续 pass
+  env.flushRaf()
+  assert(slot.style.display === 'none', '掏空后包装层隐藏、幻影 gap 塌缩', slot.style.display)
+  chip.dispatchEvent('click')  // 二级再展开
+  await env.tick()
+  assert(slot.style.display === '', '展开后包装层恢复', slot.style.display)
+  assert(thinkSeat.querySelector('.dshcf-merged-think') !== null, '展开态合并行承载思考内容')
+  cleanup()
+}
+// ---------------------------------------------------------------------------
+// 场景 M-7：原生侧直接写内联隐藏（无账本无哨兵）掏空包装层，同样塌缩。
+// 生产实证：think 行 inline display:none 但无 --dshcf-display-owned（宿主
+// 自己的写法或账本丢失路径），严格账本归属会漏网；空洞即藏的规则覆盖。
+// ---------------------------------------------------------------------------
+{
+  console.log('\n=== 场景 M-7: 非账本隐藏掏空同样塌缩 ===')
+  const { env, document, flow, register, cleanup } = boot()
+  const user = seat(flow, 'user', 'u1', 40)
+  textNode('问个问题', user)
+  const thinkSeat = seat(flow, 'assistant-step', 'a1', 80)
+  const slot = el('div', {}, thinkSeat)
+  const t1 = makeThinkRow({ summary: '第一段思考', parent: slot })
+  makeThinkRow({ summary: '第二段思考', parent: slot })
+  addBodyText(thinkSeat, '最终正文')
+  const tail = seat(flow, 'turn-tail', 'tt1', 24)
+  textNode('用时 3秒', tail)
+  document.body.appendChild(flow)
+  register()
+  await env.tick(); await env.tick()
+  flow.querySelector('.dshcf-processed').dispatchEvent('click')  // 一级展开
+  await env.tick()
+  const chip = thinkSeat.querySelector('.dshcf-chip')
+  assert(chip !== null, 'chip 存在')
+  t1.style.display = 'none'  // 模拟原生侧直接内联隐藏（无账本）
+  chip.dispatchEvent('click')  // 二级展开
+  await env.tick()
+  chip.dispatchEvent('click')  // 二级收起
+  env.notifyMutations(); env.flushRaf()
+  await new Promise(r => setTimeout(r, 15))
+  env.flushRaf()
+  assert(slot.style.display === 'none', '含非账本隐藏行的空洞包装层同样隐藏', slot.style.display)
+  chip.dispatchEvent('click')  // 二级再展开
+  await env.tick()
+  assert(slot.style.display === '', '展开后包装层恢复', slot.style.display)
+  cleanup()
+}
+// ---------------------------------------------------------------------------
+// 场景 M-8：僵尸 fade 收割——收起 fade 已播完但 finish 事件丢失时，记录
+// 仍在导致每轮仲裁跳过、元素以 opacity:0 占位（真机：透明占位 40px 与
+// 展开跳动）。下轮 pass 同步执行终态结算（display:none + pin 归零）。
+// 模拟：杀桩定时器（事件永不到）+ 置 playState finished（时钟已播完）。
+// ---------------------------------------------------------------------------
+{
+  console.log('\n=== 场景 M-8: 僵尸 fade 收割 ===')
+  const { env, document, flow, register, cleanup } = boot()
+  const { t1, row } = buildTurn(flow)
+  document.body.appendChild(flow)
+  register()
+  await env.tick(); await env.tick()
+  flow.querySelector('.dshcf-processed').dispatchEvent('click')  // 一级展开
+  await env.tick()
+  const chip = t1.querySelector('.dshcf-chip')
+  assert(chip !== null, 'chip 存在')
+  chip.dispatchEvent('click')  // 二级展开
+  await env.tick()
+  chip.dispatchEvent('click')  // 二级收起（手势，fade 启动）
+  env.notifyMutations(); env.flushRaf()
+  assert(chip.style.marginBottom === '16px', '收起 fade 期间间距钉住 16px', chip.style.marginBottom)
+  const fade = row._animations[row._animations.length - 1]
+  assert(fade !== undefined, '收起 fade 已建账')
+  clearTimeout(fade._timer)  // 事件丢失：桩结算永不触发
+  fade.playState = 'finished'  // 时钟已播完：终态未结算的僵尸
+  env.notifyMutations(); env.flushRaf()  // 下轮 pass 收割
+  assert(row.style.display === 'none', '收割后行终态隐藏', row.style.display)
+  assert(chip.style.marginBottom === '', '收割后 pin 归零', chip.style.marginBottom)
+  cleanup()
+}
+// ---------------------------------------------------------------------------
+// 场景 M-9：兜底发现——正文体容器内、从未被分块覆盖的隐藏 think，其空洞
+// 包装层靠结构变化轮次的宿主直扫塌缩（按行 walk 够不着）。若分类覆盖它，
+// 则展开时会恢复它；断言它始终未被恢复，以锁定“未覆盖”前提。
+// ---------------------------------------------------------------------------
+{
+  console.log('\n=== 场景 M-9: 宿主直扫兜底发现 ===')
+  const { env, document, flow, register, cleanup } = boot()
+  const user = seat(flow, 'user', 'u1', 40)
+  textNode('问个问题', user)
+  const thinkSeat = seat(flow, 'assistant-step', 'a1', 80)
+  const slot = el('div', {}, thinkSeat)
+  makeThinkRow({ summary: '第一段思考', parent: slot })
+  const body = el('div', { class: 'native-body' }, thinkSeat)
+  const inner = el('div', {}, body)
+  const nestedThink = makeThinkRow({ summary: '正文体内的思考', parent: inner })
+  nestedThink.style.display = 'none'  // 注册前即隐藏：模拟从未被分块覆盖
+  addBodyText(thinkSeat, '最终正文')
+  const tail = seat(flow, 'turn-tail', 'tt1', 24)
+  textNode('用时 3秒', tail)
+  document.body.appendChild(flow)
+  register()
+  await env.tick(); await env.tick()
+  flow.querySelector('.dshcf-processed').dispatchEvent('click')  // 一级展开
+  await env.tick()
+  const allChips = [...flow.querySelectorAll('.dshcf-chip')]
+  for (const c of allChips) c.dispatchEvent('click')  // 二级全展开
+  await env.tick()
+  assert(nestedThink.style.display === 'none', '未覆盖的隐藏 think 不会被展开恢复', nestedThink.style.display)
+  for (const c of allChips) { if (c.isConnected) c.dispatchEvent('click') }  // 同一批全收起
+  env.notifyMutations(); env.flushRaf()
+  await new Promise(r => setTimeout(r, 20))
+  env.flushRaf()
+  assert(slot.style.display === 'none', '外层空洞包装隐藏', slot.style.display)
+  assert(inner.style.display === 'none', '嵌套空洞包装同样隐藏（兜底发现）', inner.style.display)
+  // 意图重登记回归：已藏空壳必须在后续多轮 pass 里保持隐藏，不能被
+  // restoreUnusedDisplays 逐轮复活（藏↔显振荡 = 真机 32px 间距反复 + 展开跳动）。
+  await env.tick(); await env.tick(); await env.tick()
+  assert(slot.style.display === 'none', '多轮后外层仍隐藏（无振荡）', slot.style.display)
+  assert(inner.style.display === 'none', '多轮后嵌套仍隐藏（无振荡）', inner.style.display)
+  cleanup()
+}
 
 console.log(`\n[DONE] failures=${failures}`)
 process.exit(failures === 0 ? 0 : 1)

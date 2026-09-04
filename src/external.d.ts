@@ -11,21 +11,3 @@ declare module '@deepseek-ai/schemastery' {
   export default z
 }
 
-declare module '@deepseek-ai/dsh-settings' {
-  export interface SettingsNamespace {
-    readonly __brand: 'SettingsNamespace'
-  }
-  export interface SettingsSectionHooks<T> {
-    validate?: (value: T) => void
-    setSource: (source: () => T) => void
-    onChange: () => void
-  }
-  export function settingsNamespace(value: string): SettingsNamespace
-  export function installSettingsSection<T>(
-    ctx: unknown,
-    ns: SettingsNamespace,
-    schema: unknown,
-    entry: T,
-    hooks: SettingsSectionHooks<T>,
-  ): void
-}

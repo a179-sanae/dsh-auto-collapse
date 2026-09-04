@@ -12,10 +12,11 @@
  *   - 全部完成 → 标题 = 类型总结（编辑了文件 / 运行了命令 / 已思考 /
  *     上下文注入），摘要清空；出错 → 红色，中断 → 琥珀。
  *
- * 另外把官方 ChatView 尾部的运行状态行文字 "Deep diving..." 替换为
- * 可配置的状态提示词（默认 "Deep sleeping..."；流光特效在 CSS 上，
- * 替换文本节点不影响）。React 重渲染会恢复原文，pass() 每轮自愈改回。
- * 设置为空时不替换，等价于恢复官方 "Deep diving..."。
+ * 另外把官方 ChatView 尾部的运行状态行文字（新版 "深度求索中..." / 旧版
+ * "Deep diving..."，见 TURN_STATUS_COPY_RE）替换为可配置的状态提示词
+ * （默认 "Deep sleeping..."；流光特效在 CSS 上，替换文本节点不影响，
+ * 宿主追加的用时后缀原样保留）。React 重渲染会恢复原文，pass() 每轮自愈改回。
+ * 设置为空时不替换，等价于恢复官方原文。
  *
  * 点击一行展开，再点收起；折叠态下若有行被选中（详情联动）自动展开。
  *
@@ -37,6 +38,11 @@ const STYLE_ID = 'dshcf-style'
 
 /** 默认状态提示词，与设置在设置页里展示的默认值保持一致。 */
 const DEFAULT_STATUS_TEXT = 'Deep sleeping...'
+
+/** 官方运行状态行进行中文案（新旧两版）：0.1.x 为英文 "Deep diving..."；
+ * 当前版本为中文 "深度求索中..."。宿主会把用时后缀（如 "33秒"）拼进同一
+ * 文本节点，替换时只吃文案前缀、后缀原样保留。 */
+const TURN_STATUS_COPY_RE = /Deep diving[.…]*|深度求索中\s*[.…]*/
 
 /** 显示动画参数（issue #2 区间 150–250ms）。 */
 const ANIM_DURATION_MS = 180
@@ -75,6 +81,17 @@ const TOOL_LABELS: Record<string, string> = {
   cordis_stop: 'Stop',
   cordis_undefine: 'Remove',
 }
+
+/** 原生回合摘要行（DSH 0.1.2+ TurnProcessNodeView）：
+ *  flow 顶层 data-chat-flow-kind="turn-process" 的消息，内部按钮
+ *  button[data-turn-process] 携带计数值与 data-open/aria-expanded 开合态。
+ *  插件永不隐藏它：一级行向它让位，overlay 跟随它的开合。
+ */
+const TURN_PROCESS_KIND = 'turn-process'
+/** 原生折叠成员标记：宿主收起时打在成员行上（CSS 级隐藏，非内联）。 */
+const NATIVE_HIDDEN_ATTR = 'data-turn-process-hidden'
+/** 原生摘要按钮的展开标记：React 以 data-open 有无表达开合。 */
+const NATIVE_OPEN_ATTR = 'data-open'
 
 const CHIP_CSS = `
 .dshcf-chip {
@@ -420,6 +437,8 @@ interface PendingAnim {
   target: 'hidden' | 'visible'
   /** fade=纯透明度/位移；height=几何锁动画（在途取消时需同步清锁高内联）。 */
   kind: 'fade' | 'height'
+  /** 收起终态结算（pin 归零/移除）。存在账本上，供迟到 onfinish 与僵尸收割共用。 */
+  settle?: () => void
 }
 
 export class FoldController {
@@ -475,6 +494,7 @@ export class FoldController {
   /** 自上次 pass 以来子树发生变化的 flow 顶层消息；pass 开头统一失效。 */
   private dirtyMessages = new Set<HTMLElement>()
   /** 在途显示动画（元素 → 记录）：冲突仲裁、记账对齐与生命周期清理的依据。
+  /** 在途显示动画（元素 → 记录）：冲突仲裁、记账对齐与生命周期清理的依据。
    * 用 Map 不用 WeakMap——switchFlow/stop 需要遍历全量 cancel。 */
   private pendingAnims = new Map<HTMLElement, PendingAnim>()
   /** 手势点击的一次性可动画 block key；segment 级点击另保留中间正文的门控。 */
@@ -492,6 +512,20 @@ export class FoldController {
    * attributes 批次（流式文本、data-state 翻转）不改变块结构，跳过全量
    * querySelectorAll 重扫（issue #14：长会话下每轮重扫造成主线程卡顿）。 */
   private structureDirty = true
+  /** 本轮 pass 的原生 turn 摘要快照（turn id → 开合态）：每轮重建，不跨轮复用；
+   * data-open 翻转不改变块结构也能驱动重算，见 buildNativeTurnMap。 */
+  private nativeTurns = new Map<string, NativeTurnState>()
+  /** 被折叠掏空后藏起的中间包装层（真机 44px vs 28px 真因：think 行全隐后
+   * 其父容器变零高度空壳，仍作为 flex item 参与父级 gap，凭空多出 16px）。
+   * 内容恢复（展开/流式追加/块转世）时同函数恢复显示；switchFlow 清空。 */
+  private emptiedWrappers = new Set<HTMLElement>()
+  /** 本轮 pass 内有过 display 实写（hide/restore 瞬时路径）。空洞发现的触发
+   * 条件之一：纯 display 收放不产生 childList，不触发 structureDirty。
+   * settle 触发的后续 pass 则由 settleFired 覆盖。读后即清（见发现调用点）。 */
+  private displayTouched = false
+  /** 有 fade 自然结算过（chipSettle 跑过）。结算本身不写 display，但它意味着
+   * 某行刚变隐藏——空洞可能刚形成。 */
+  private settleFired = false
   /** 滚动稳定化（issue #14）：flow 最近的滚动容器缓存（按 flow 身份失效）。 */
   private scrollContainer: HTMLElement | null = null
   private scrollContainerFlow: HTMLElement | null = null
@@ -535,7 +569,10 @@ export class FoldController {
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ['data-selected', 'data-state'],
+        // 原生 TurnProcess 开合只改 attribute（成员 data-turn-process-hidden、
+        // 摘要按钮 data-open），必须进过滤器才能即时调度；插件自身从不写
+        // 这两个属性，不会自激。
+        attributeFilter: ['data-selected', 'data-state', 'data-turn-process-hidden', 'data-open'],
         // 流式文本更新（React 改 text node 的 data）属于 characterData
         // mutation：不观察则二级摘要/滚动跟随只能靠偶发结构变化驱动，
         // 变成“隔几秒跳一次”。所有文本写入都有守卫（值不变不写），
@@ -607,6 +644,16 @@ export class FoldController {
       if (this.controlledDisplay.has(el) && this.displayForeign(el)) {
         this.schedule()
         return
+      }
+    }
+    // 掏空包装层复核：style 不进 observer attributeFilter，原生侧在视野外
+    // 恢复内容时 observer 看不见；这里直接恢复并遗忘，不排队等 pass。
+    for (const el of [...this.emptiedWrappers]) {
+      if (!el.isConnected) { this.emptiedWrappers.delete(el); continue }
+      if (!this.isHollow(el)) {
+        this.restoreElement(el)
+        if (el.style.display === 'none') el.style.display = ''
+        this.emptiedWrappers.delete(el)
       }
     }
   }
@@ -778,6 +825,9 @@ export class FoldController {
     this.currentBlocks = new Map(blocks.map(block => [block.key, block]))
     const segments = buildSegments(flow, blocks, (el) => this.hasBodyCached(el))
     const liveSegmentKeys = new Set(segments.map(segment => segment.key))
+    // 原生 turn 摘要快照每轮重建：data-open 翻转不改变块结构，必须实时读取，
+    // 不能并入 structureDirty 门控的快照复用。
+    this.nativeTurns = buildNativeTurnMap(flow)
 
     // 滚动锚定（issue #14）：几何写入前记录贴底意图，见 captureScrollAnchor。
     const scrollAnchor = this.captureScrollAnchor(flow)
@@ -800,6 +850,14 @@ export class FoldController {
       if (!snapshot.closed || snapshot.running || !snapshot.hasWork) continue
       completedKeys.add(snapshot.key)
       this.completedOnce.add(snapshot.key)
+      // 原生让位：该 segment 拥有原生回合摘要行时不建一级行（免双摘要）；
+      // 残留旧行先移除。时长显示按用户决策舍弃（选项 1）。
+      if (segmentHasNativeTurn(snapshot, this.nativeTurns)) {
+        const prev = this.segmentStates.get(snapshot.key)
+        prev?.row?.remove()
+        if (prev !== undefined) this.segmentStates.delete(snapshot.key)
+        continue
+      }
       let state = this.segmentStates.get(snapshot.key)
       if (state === undefined) {
         state = { key: snapshot.key, row: null, expanded: false, snapshot }
@@ -837,6 +895,28 @@ export class FoldController {
       seenBlocks.add(block.key)
       this.reconcileBlock(block, segmentByBlock.get(block.key) ?? null, desiredHidden)
     }
+    // 空洞包装层兜底发现：按行 walk 依赖分块覆盖，嵌套在正文体等容器内的行
+    // 可能不在任何 block.rows 里（如 body 内 think）导致漏网。这里按宿主直扫。
+    // 扫描范围除 block.host 外还包括 finalStep/middleSteps：think 行被并入
+    // 前一个块的消息（正文消息不是块宿主）里，空壳包装层同样制造 flex-gap
+    // 幻影（正文与上方内容之间多 16px）。
+    // 触发条件：结构变化，或本轮有过 display 实写，或有 fade 结算过——纯
+    // display 收放与 settle 都不产生 childList，走不到 structureDirty。读后即清。
+    if (rebuildBlocks || this.displayTouched || this.settleFired) {
+      const hosts = new Set<HTMLElement>()
+      for (const block of this.currentBlocks.values()) {
+        if (block.host.isConnected) hosts.add(block.host)
+      }
+      for (const segment of segments) {
+        if (segment.finalStep?.isConnected) hosts.add(segment.finalStep)
+        for (const middle of segment.middleSteps) {
+          if (middle.isConnected) hosts.add(middle)
+        }
+      }
+      this.discoverHollowWrappers(hosts, desiredHidden)
+    }
+    this.displayTouched = false
+    this.settleFired = false
 
     for (const segment of segments) {
       const state = this.segmentStates.get(segment.key)
@@ -864,6 +944,20 @@ export class FoldController {
     }
 
     this.cleanupStaleChips(seenBlocks)
+    // 僵尸收割：收起 fade 已播完但 finish 事件丢失（后台 tab/事件丢失），记录
+    // 仍在导致每轮仲裁跳过、元素以 opacity:0 占位（真机：透明占位 40px 与展开
+    // 跳动）。同步执行终态结算；身份守卫在方法内，无误伤。放 restore 之前，
+    // 免得复活逻辑反向取消这些本该结束的动画。
+    for (const [el, record] of [...this.pendingAnims]) {
+      if (
+        record.target === 'hidden'
+        && record.kind === 'fade'
+        && this.pendingAnims.get(el) === record
+        && this.isAnimOverdue(record.anim)
+      ) {
+        this.finishFadeCollapse(el, record)
+      }
+    }
     this.restoreUnusedDisplays(desiredHidden)
     for (const state of this.segmentStates.values()) this.placeProcessedRow(flow, state)
     // 几何写入收尾：贴底视口同帧钉回（issue #14），在宿主 ResizeObserver
@@ -972,6 +1066,8 @@ export class FoldController {
     this.bodyTextCache = new WeakMap()
     this.dirtyMessages.clear()
     this.auditDisplays.clear()
+    this.nativeTurns.clear()
+    this.emptiedWrappers.clear()
     this.structureDirty = true
     this.restoreAllDisplays()
     restoreTurnStatus(this.turnStatusTexts)
@@ -1032,11 +1128,41 @@ export class FoldController {
     if (row.parentElement !== flow || row.nextElementSibling !== target) target.before(row)
   }
 
+  /** 原生收起时隐藏本块插件自有 overlay（chip/合并行+内容块）：只做
+   * display 直写，不清钉住之外的账本、不删展开态，供原生再展开后复用。
+   * 在途 WAAPI 动画不追踪取消——收尾回调只做幂等终态对齐，无残留。 */
+  private hideOverlayForNativeCollapse(block: Block): void {
+    const existing = this.chips.get(block.key)?.chip
+    if (existing !== undefined && existing.style.display !== 'none') {
+      existing.style.marginBottom = ''
+      existing.style.display = 'none'
+    }
+    const row = this.mergedThinks.get(block.host)
+    if (row !== undefined && row.style.display !== 'none') {
+      row.style.display = 'none'
+      const body = row.nextElementSibling
+      if (
+        body instanceof HTMLElement
+        && body.classList.contains('dshcf-merged-body')
+        && body.style.display !== 'none'
+      ) {
+        body.style.display = 'none'
+      }
+    }
+  }
+
   private reconcileBlock(
     block: Block,
     segment: SegmentSnapshot | null,
     desiredHidden: Set<HTMLElement>,
   ): void {
+    // 原生折叠跟随：所在 turn 被原生收起时隐藏插件自有 overlay（chip/合并行），
+    // 保留账本与展开态；成员行由宿主 CSS 隐藏，插件不写它们，避免打架。
+    // 原生再展开时 attribute 变化会调度 pass，按原样恢复。
+    if (blockNativelyCollapsed(block, this.nativeTurns)) {
+      this.hideOverlayForNativeCollapse(block)
+      return
+    }
     const state = segment === null ? undefined : this.segmentStates.get(segment.key)
     // 触发门控：chip 本身被点击，或其所属 segment 的一级行被点击时，
     // 该块的展开方向走动画路径（分层规则：host 恒瞬时，只动画内部行）。
@@ -1070,7 +1196,10 @@ export class FoldController {
           existing.style.display = 'none'
         }
       }
-      this.releaseMergedThink(block.host, animate)
+      // 掏空包装层在一级收起态也要对账：块行渐隐落定后，正文消息里被并入
+      // 前块的 think 行留下 0 高空壳（flex-gap 幻影），不在此登记 desired
+      // 会被 restoreUnusedDisplays 逐轮复活（收起态“已处理”行下方多 16px）。
+      this.syncEmptiedWrappers(block, desiredHidden)
       return
     }
 
@@ -1114,6 +1243,7 @@ export class FoldController {
     // 判定用 pendingAnims 账本无状态探测（AI 评审：计数器/最后注册者在
     // cancel 路径会卡死；账本在 oncancel/onfinish 都即时清空，天然解锁）。
     const chipSettle = () => {
+      this.settleFired = true
       if (!this.hasPendingCollapse(block)) this.unpinChipMargin(chip)
     }
     for (const container of block.containers) {
@@ -1138,8 +1268,132 @@ export class FoldController {
       // 否则思考块收起时钉住失效，v13 间距瞬跳回归）。
       if (this.releaseMergedThink(block.host, animate, chipSettle)) this.pinChipMargin(chip)
     }
+    // 掏空包装层对账：行显隐落定后收尾（内部读实时 display，须在行循环之后）。
+    this.syncEmptiedWrappers(block, desiredHidden)
     chip.classList.toggle('dshcf-has-body', block.mount === 'inside' && this.hasBodyCached(block.host))
     updateChip(chip, block.rows, expanded)
+  }
+
+  /**
+   * 掏空包装层对账（真机 44px vs 28px 真因修复）。
+   *
+   * 折叠把某容器的子行全部 display:none 后，该容器变零高度空壳，但仍是
+   * 父级 flex 的 item 并参与 gap（如正文体 flex-column gap:16px），凭空多出
+   * 一份间距。隐藏这类空壳可让 gap 塌缩；子内容恢复可见（展开/流式追加/
+   * 块转世）时恢复显示。
+   *
+   * 安全边界：
+   * - 只看 block.host 内部、不含 host 本人（宿主显隐归 segment 逻辑）；
+   * - 跳过结构 seat（data-chat-flow-kind / data-chat-anchor-key）与插件
+   *   自身 overlay（dshcf- 前缀类）；
+   * - 只隐藏内容空洞（无可见子内容）：零高度无文本的空壳 display:none 与
+   *   保持显示像素一致，只塌缩父级 gap；任何一方恢复内容即恢复显示。
+   */
+  /**
+   * 空洞包装层兜底发现：按宿主直扫 div（仅结构变化轮次调用）。
+   * 只做隐藏侧：空洞即藏并记入 tracked；恢复侧由 syncEmptiedWrappers 的
+   * tracked 复核与 audit 承担。与按行 walk 共用同一安全边界（结构 seat /
+   * 插件 overlay / 宿主本人不碰）。
+   */
+  private discoverHollowWrappers(hosts: Set<HTMLElement>, desiredHidden: Set<HTMLElement>): void {
+    for (const host of hosts) {
+      if (!host.isConnected) continue
+      let divs: HTMLElement[]
+      try {
+        divs = [...host.querySelectorAll('div')]
+      } catch {
+        continue
+      }
+      for (const el of divs) {
+        if (el === host || !(el instanceof HTMLElement)) continue
+        const cls = el.className
+        if (typeof cls === 'string' && cls.split(' ').some(c => c.startsWith('dshcf-'))) continue
+        if (el.hasAttribute('data-chat-flow-kind') || el.hasAttribute('data-chat-anchor-key')) continue
+        if (this.isHollow(el)) {
+          // 无条件调 hide：已隐藏时它只重登记本轮意图（desired.add 先行）即早退，
+          // 不重写 display；若跳过，已藏元素会被 restoreUnusedDisplays 复活→振荡。
+          this.hideElement(el, desiredHidden, false)
+          this.emptiedWrappers.add(el)
+        }
+      }
+    }
+  }
+
+  private syncEmptiedWrappers(block: Block, desiredHidden: Set<HTMLElement>): void {
+    const flow = this.flow
+    if (flow === null) return
+    // 行可能跨消息（块合并）：“掏空包装层”按每行所属的 flow 直接子级（消息）
+    // 界定，而不是 block.host——正文消息的 think 行被并入前一个块时，其空壳
+    // 包装层在最终正文/中间正文消息内部，不在任何 block.host 子树下；消息体
+    // 是 flex + gap 容器，可见空壳仍参与 gap，凭空多出 16px 幻影间距。
+    const scopeOf = (el: HTMLElement | null): HTMLElement | null => {
+      let cur: HTMLElement | null = el?.parentElement ?? null
+      while (cur instanceof HTMLElement && cur.parentElement !== flow) {
+        cur = cur.parentElement
+      }
+      return cur instanceof HTMLElement && cur.parentElement === flow ? cur : null
+    }
+    const candidates: HTMLElement[] = []
+    const seen = new Set<HTMLElement>()
+    const scopes = new Set<HTMLElement>()
+    const collect = (el: HTMLElement | null) => {
+      const scope = scopeOf(el)
+      if (scope === null) return
+      scopes.add(scope)
+      let node = el?.parentElement ?? null
+      while (node instanceof HTMLElement && node !== scope) {
+        if (!seen.has(node)) { seen.add(node); candidates.push(node) }
+        node = node.parentElement
+      }
+    }
+    for (const row of block.rows) collect(row)
+    for (const container of block.containers) collect(container)
+    // 上轮藏过、本轮行里没覆盖到的（如行被解散）也要复核：断连则遗忘；仍
+    // 在本块涉及的消息内则纳入判定（恢复/保持）；属于其他消息的条目留给
+    // 拥有该消息的块或 audit 复核，不在此越权处理。
+    for (const el of [...this.emptiedWrappers]) {
+      if (!el.isConnected) {
+        this.emptiedWrappers.delete(el)
+        continue
+      }
+      const scope = scopeOf(el)
+      if (scope === null || !scopes.has(scope)) continue
+      if (!seen.has(el)) { seen.add(el); candidates.push(el) }
+    }
+    for (const el of candidates) {
+      if (!el.isConnected) {
+        this.emptiedWrappers.delete(el)
+        continue
+      }
+      const cls = el.className
+      if (typeof cls === 'string' && cls.split(' ').some(c => c.startsWith('dshcf-'))) continue
+      if (el.hasAttribute('data-chat-flow-kind') || el.hasAttribute('data-chat-anchor-key')) continue
+      if (this.isHollow(el)) {
+        // 无条件调 hide（同 discover）：已隐藏时只重登记本轮意图即早退，
+        // 否则 restoreUnusedDisplays 会把已藏的空壳逐轮复活→间距振荡/跳动。
+        this.hideElement(el, desiredHidden, false)
+        this.emptiedWrappers.add(el)
+      } else if (this.emptiedWrappers.delete(el)) {
+        // 曾被我们藏起、如今又有可见内容：恢复（账本即 display 写入的依据）。
+        this.restoreElement(el)
+      }
+    }
+  }
+
+  /** 内容空洞判定：无可见子内容（文本/元素任一可见即非空洞）。隐藏者是谁
+   * 不重要——零高度无文本节点 display:none 与保持显示像素一致（只塌缩父级
+   * gap，正是要修的幻影）；任何一方恢复内容，下轮 pass/audit 即恢复显示。
+   * isDisplayed 走 getComputedStyle（桩内退化为内联，语义一致）。 */
+  private isHollow(el: HTMLElement): boolean {
+    for (const child of [...el.childNodes]) {
+      if (child.nodeType === 3) {
+        if ((child.textContent ?? '').trim() !== '') return false
+        continue
+      }
+      if (!(child instanceof HTMLElement)) continue
+      if (isDisplayed(child)) return false
+    }
+    return true
   }
 
   private ensureChip(block: Block): HTMLButtonElement {
@@ -1576,6 +1830,7 @@ export class FoldController {
     }
     el.style.display = 'none'
     this.writtenDisplay.set(el, 'none')
+    this.displayTouched = true
     return false
   }
 
@@ -1601,13 +1856,19 @@ export class FoldController {
     // 祖先 seat 在途动画时跳过后代申请（防双重淡入/淡出与高度锁竞争）：
     // 后代随祖先的 overflow 裁剪与整体过渡呈现，自身走瞬变终态。
     if (!animate || !this.canAnimate(el) || this.hasAnimatingAncestor(el)) {
-      if (el.style.display !== original) el.style.display = original
+      if (el.style.display !== original) {
+        el.style.display = original
+        this.displayTouched = true
+      }
       this.releaseDisplayLedger(el)
       return
     }
     // 动画路径（展开）：占位即刻出现，内容淡入 + 微位移。账本双条目保持到
     // onfinish 对齐（终态可见 = 双删除，镜像 restoreElement 契约）。
-    if (el.style.display !== original) el.style.display = original
+    if (el.style.display !== original) {
+      el.style.display = original
+      this.displayTouched = true
+    }
     this.writtenDisplay.set(el, original)
     this.startReveal(el)
   }
@@ -1685,30 +1946,57 @@ export class FoldController {
       ],
       { duration: ANIM_DURATION_MS, easing: ANIM_EASING, fill: 'forwards' },
     )
-    const record: PendingAnim = { anim, target: 'hidden', kind: 'fade' }
+    const record: PendingAnim = { anim, target: 'hidden', kind: 'fade', settle }
     this.pendingAnims.set(el, record)
-    anim.onfinish = () => {
-      if (this.pendingAnims.get(el) !== record) return
-      this.pendingAnims.delete(el)
-      // 渐隐期间被外部接管（哨兵被抹/值被改）：不写终态、不执行 settle，
-      // 账本交还外部，由后续 pass 按新事实重分类（issue #11 Bug A）。
-      if (this.displayForeign(el)) {
-        this.releaseDisplayLedger(el)
-        this.schedule()
-        anim.cancel()
-        return
-      }
-      if (el.style.display !== 'none') el.style.display = 'none'
-      this.writtenDisplay.set(el, 'none')
-      // settle：渐隐自然结束后的延迟清理（如 DOM 移除）；反向取消不执行。
-      settle?.()
-      anim.cancel()
-      this.schedule()
-    }
+    anim.onfinish = () => this.finishFadeCollapse(el, record)
     anim.oncancel = () => {
       if (this.pendingAnims.get(el) !== record) return
       this.pendingAnims.delete(el)
     }
+  }
+
+  /**
+   * 收起 fade 终态结算（onfinish 与僵尸收割共用）。仅被同元素新动画
+   * supersede 时早退；被 sweep 删账（元素已断连）或收割时仍执行 settle——
+   * 回调经 controller 可达，动画必然触发 onfinish，早退会把 chip 内联 16px
+   * 钉住永久残留。重挂载同节点不可能（React 只建新节点），重启动的新动画
+   * 由第一条守卫覆盖，无误伤。
+   */
+  private finishFadeCollapse(el: HTMLElement, record: PendingAnim): void {
+    const cur = this.pendingAnims.get(el)
+    if (cur !== undefined && cur !== record) return
+    this.pendingAnims.delete(el)
+    // 渐隐期间被外部接管（哨兵被抹/值被改）：不写终态、不执行 settle，
+    // 账本交还外部，由后续 pass 按新事实重分类（issue #11 Bug A）。
+    if (this.displayForeign(el)) {
+      this.releaseDisplayLedger(el)
+      this.schedule()
+      record.anim.cancel()
+      return
+    }
+    if (el.style.display !== 'none') el.style.display = 'none'
+    this.writtenDisplay.set(el, 'none')
+    // settle：终态的延迟清理（如 DOM 移除/pin 归零）；反向取消不执行
+    // （cancelPendingSync 同步删账，异步 oncancel 够不到这里）。
+    record.settle?.()
+    record.anim.cancel()
+    this.schedule()
+  }
+
+  /** 动画是否已播完（终态未结算）：finish 事件丢失时的兜底判定。WAAPI 桩
+   * 无 playState/effect 时一律 false，走正常事件路径，测试行为不变。 */
+  private isAnimOverdue(anim: Animation): boolean {
+    const a = anim as unknown as {
+      playState?: unknown
+      currentTime?: unknown
+      effect?: { getComputedTiming?: () => { endTime?: unknown } } | null
+    }
+    if (a.playState === 'finished') return true
+    if (typeof a.currentTime === 'number') {
+      const end = a.effect?.getComputedTiming?.().endTime
+      if (typeof end === 'number' && a.currentTime >= end) return true
+    }
+    return false
   }
 
   /** 轻量视觉 reveal（opacity + 4px 微位移）：用于插件全资元素的即时显示
@@ -1729,7 +2017,17 @@ export class FoldController {
 
   private restoreUnusedDisplays(desired: ReadonlySet<HTMLElement>): void {
     for (const el of [...this.controlledDisplay]) {
-      if (!desired.has(el)) this.restoreElement(el)
+      if (desired.has(el)) continue
+      // 断连但有在途收起 fade：跳过恢复——反向取消会谋杀 fade（settle
+      // 丢失 → chip 内联 16px 钉住永久残留，真机 44px vs 28px）。账本直接
+      // 交还，在途动画留给 sweep 删账 + 迟到 onfinish 结算（见
+      // startFadeCollapse）。无在途动画时沿用原语义（恢复原始 display，
+      // 复挂不残留隐藏，见 fold-reconcile 稳定 key 换节点）。
+      if (!el.isConnected && this.pendingAnims.get(el)?.target === 'hidden') {
+        this.releaseDisplayLedger(el)
+        continue
+      }
+      this.restoreElement(el)
     }
   }
 
@@ -2065,6 +2363,61 @@ function isDisplayed(el: HTMLElement): boolean {
   return el.style.display !== 'none'
 }
 
+/** 原生回合摘要状态（每 pass 重建，不跨轮复用）。 */
+interface NativeTurnState {
+  /** 该 turn 是否被原生折叠（摘要按钮 data-open 缺失即收起）。 */
+  collapsed: boolean
+}
+
+/** 扫描 flow 顶层原生 turn-process 行：turn id → 开合态。
+ *  无按钮（foldable=false 的空壳）视为不存在，不触发让位——否则双方
+ *  摘要都不显示。data-chat-turn 缺失的行跳过。
+ */
+function buildNativeTurnMap(flow: HTMLElement): Map<string, NativeTurnState> {
+  const states = new Map<string, NativeTurnState>()
+  for (const el of flow.children) {
+    if (!(el instanceof HTMLElement)) continue
+    if (el.getAttribute('data-chat-flow-kind') !== TURN_PROCESS_KIND) continue
+    const turn = el.getAttribute('data-chat-turn')
+    if (turn === null || turn === '') continue
+    const button = el.querySelector('button[data-turn-process]')
+    if (button === null) continue
+    // React 以 `"data-open": open || void 0` 渲染：属性缺失即收起态。
+    // aria-expanded 双保险：两者一致时才判定，避免中间态误读。
+    const openAttr = button.getAttribute(NATIVE_OPEN_ATTR) !== null
+    const expandedAttr = button.getAttribute('aria-expanded')
+    const open = expandedAttr === null ? openAttr : expandedAttr === 'true'
+    states.set(turn, { collapsed: !open })
+  }
+  return states
+}
+
+/** 元素所属的原生 turn id（flow 顶层包装的 data-chat-turn）。 */
+function elementTurn(el: HTMLElement): string | null {
+  const turn = el.getAttribute('data-chat-turn')
+  return turn === null || turn === '' ? null : turn
+}
+
+/** segment 是否拥有原生回合摘要行：任一 block 宿主的 turn 在快照里。
+ *  有则一级行让位（不渲染“已处理”），overlay 跟随原生开合。
+ */
+function segmentHasNativeTurn(segment: SegmentSnapshot, nativeTurns: Map<string, NativeTurnState>): boolean {
+  if (nativeTurns.size === 0) return false
+  for (const block of segment.blocks) {
+    const turn = elementTurn(block.host)
+    if (turn !== null && nativeTurns.has(turn)) return true
+  }
+  return false
+}
+
+/** block 所在 turn 是否被原生折叠：是则隐藏插件自有 overlay（chip/合并行），
+ *  但保留账本与展开态——原生再展开时按原样恢复，不与宿主打架。 */
+function blockNativelyCollapsed(block: Block, nativeTurns: Map<string, NativeTurnState>): boolean {
+  if (nativeTurns.size === 0) return false
+  const turn = elementTurn(block.host)
+  return turn !== null && nativeTurns.get(turn)?.collapsed === true
+}
+
 
 function stableElementKey(el: HTMLElement, fallbackIndex: number): string {
   const kind = el.getAttribute('data-chat-flow-kind') ?? 'node'
@@ -2215,6 +2568,9 @@ function findBlocks(flow: HTMLElement, hasBody: (el: HTMLElement) => boolean): B
 
   for (const el of children) {
     const kind = el.getAttribute('data-chat-flow-kind')
+    // 原生回合摘要行（DSH 0.1.2+）：透明跳过——不当正文、不切断合并、
+    // 不建块。宿主自己负责它的显隐，插件永不触碰。
+    if (kind === TURN_PROCESS_KIND) continue
     if (kind === 'user' || kind === 'steering' || kind === 'turn-tail') {
       flushCarry()
       run = null
@@ -2714,9 +3070,10 @@ function injectStyle(): void {
   document.head.appendChild(style)
 }
 
-/** 官方 ChatView 尾部的运行状态行：`<div role="status">Deep diving...`。
- * 把其中的文本节点 "Deep diving..." 替换为自定义状态提示词，流光
- * 特效在 CSS 上（dsh-turn-status-shimmer），不受影响。React 重渲染会
+/** 官方 ChatView 尾部的运行状态行（`<div role="status">`，旧版文案
+ * "Deep diving..."、当前版本 "深度求索中..."）。把其中的文本节点替换为
+ * 自定义状态提示词，流光特效在 CSS 上（dsh-turn-status-shimmer），
+ * 不受影响；宿主追加的用时后缀（"33秒"）原样保留。React 重渲染会
  * 恢复原文，pass() 每轮自愈。
  * @param statusText - 完整替换文案；调用方已排除空值。
  */
@@ -2726,20 +3083,21 @@ function replaceTurnStatus(flow: HTMLElement, originals: Map<Text, { original: s
     : [...flow.querySelectorAll<HTMLElement>('[role="status"]')]
   for (const status of statuses) {
     for (const node of status.childNodes) {
-      if (node instanceof Text && node.data.includes('Deep diving')) {
+      if (node instanceof Text && TURN_STATUS_COPY_RE.test(node.data)) {
         let record = originals.get(node)
         if (record === undefined) {
           record = { original: node.data, written: '' }
           originals.set(node, record)
         }
         // 宿主在插件写入后更新过该节点（当前文本 ≠ 上次写入值，且仍含
-        // Deep diving）时，以宿主最新文本为新还原基线——否则 stop() 会把
+        // 进行中文案）时，以宿主最新文本为新还原基线——否则 stop() 会把
         // 节点还原成更旧的首见原文，覆盖宿主更新（评审实证：宿主把状态
-        // 行改成 'Deep diving fast...' 后会被还原成首见的 'Deep diving...'）。
+        // 行改成 'Deep diving fast...' 后会被还原成首见的 'Deep diving...'；
+        // 新版每秒追加用时后缀，同样走这条基线更新）。
         if (node.data !== record.written) record.original = node.data
-        // 同时吃掉原生三段点号，避免用户填入 "Deep sleeping..." 时
-        // 与原文尾部 "..." 叠成双省略号。
-        const next = node.data.replace(/Deep diving[.…]*/, statusText)
+        // 只替换进行中文案前缀（含原生点号），避免用户填入 "Deep sleeping..."
+        // 时与原文尾部 "..." 叠成双省略号；用时后缀保留。
+        const next = node.data.replace(TURN_STATUS_COPY_RE, statusText)
         // 写入守卫：值不变不赋值。否则每轮 pass 的赋值会产生
         // characterData mutation，在 characterData 观察下自激循环。
         if (node.data !== next) {

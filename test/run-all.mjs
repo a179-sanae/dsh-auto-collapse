@@ -14,6 +14,7 @@ const files = [
   'test/lifecycle.test.mjs',
   'test/issue14-followup.test.mjs',
   'test/deploy-platform.test.mjs',
+  'test/turn-process.test.mjs',
 ]
 
 function run(args) {
