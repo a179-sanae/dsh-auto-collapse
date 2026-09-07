@@ -1,0 +1,49 @@
+/* Keep native content searchable while removing folded work from flex/grid spacing. */
+[data-dshcf-folded][hidden="until-found"] {
+  position: absolute !important;
+  content-visibility: hidden !important;
+  inline-size: 0 !important;
+  block-size: 0 !important;
+  min-inline-size: 0 !important;
+  min-block-size: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-width: 0 !important;
+  overflow: clip !important;
+}
+.dshcf-group {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary, #919191);
+  font: 400 var(--dsh-content-font-size, 14px)/24px system-ui, sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+.dshcf-group[hidden] { display: none; }
+.dshcf-group:hover { color: var(--dsw-alias-label-primary, #d5d5d5); }
+.dshcf-group:focus-visible { outline: 2px solid var(--dsw-alias-state-focus-ring, #4d6bfe); outline-offset: 3px; border-radius: 3px; }
+.dshcf-group-icon { display: flex; flex: none; width: 16px; height: 16px; align-items: center; justify-content: center; }
+.dshcf-group-icon svg { display: block; width: 14px; height: 14px; }
+.dshcf-group-label { flex: 0 0 auto; min-width: 0; max-width: calc(100% - 40px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dshcf-group[data-status="running"] .dshcf-group-label,
+.dshcf-group[data-status="waiting"] .dshcf-group-label { max-width: 65%; }
+.dshcf-group-detail { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--dsw-alias-label-secondary, #aaa); }
+.dshcf-group-detail:empty { display: none; }
+.dshcf-group-chevron { flex: none; width: 12px; height: 12px; opacity: .65; transform: rotate(-90deg); }
+.dshcf-group[aria-expanded="true"] .dshcf-group-chevron { transform: none; }
+.dshcf-group[data-status="running"] .dshcf-group-label { animation: dshcf-pulse 1.6s ease-in-out infinite; }
+.dshcf-group[data-status="error"] { color: var(--dsw-alias-state-error-primary, #e5484d); }
+.dshcf-group[data-status="stopped"], .dshcf-group[data-status="waiting"] { color: var(--dsw-alias-state-warning-primary, #c58a2c); }
+@keyframes dshcf-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .dshcf-group[data-status="running"] .dshcf-group-label { animation: none; } }

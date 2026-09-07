@@ -1,111 +1,105 @@
 # dsh-auto-collapse
 
-> DeepSeek Harness Web 客户端插件：把会话里的工具卡片与 Think 推理块自动折叠成一行摘要，让界面只保留模型说的话。
+> DSH Web 工作段折叠：保留原生一级，把正文之间的思考、工具和上下文合成一个二级；展开后显示原生三级。
 >
-> English: [README.en.md](./README.en.md)
->
-> 本插件已收录到插件市场（Plugin marketplace）：[市场链接](https://www.dsh.so/artifact/dsh-auto-collapse/)
+> [English](README.en.md) · [插件市场](https://www.dsh.so/artifact/dsh-auto-collapse/)
 
-## 这是什么
+## 展示方式
 
-`dsh-auto-collapse` 是一个纯前端 DOM 插件，挂在 DeepSeek Harness Web 聊天界面上，把工作流程折叠成一行行摘要——工具调用、推理过程不再占据整屏，呈现接近 VSCode Codex 桌面端的折叠体验，**同时将官方运行状态文案（“深度求索中...” / 旧版 “Deep diving”）修改为可配置的“Deep sleeping...”**。它不改动消息内容，只控制工作流程的显示状态。
+```text
+正文 A
+▸ 已思考 · 使用了浏览器 · 已注入上下文 · 编辑了文件
+正文 B
+▸ 正在运行 npm run check
+正文 C
+```
 
-## 效果预览
+每段只有一个二级入口。思考变成工具调用、工具后追加上下文，都继续归入当前段；新正文出现后，后续工作另起一段。只有思考、只有上下文或单条工具也可以成段。
 
-![折叠效果](assets/screenshot.png)
+- **一级：DSH 原生回合摘要。** 完成判断、计数、过程正文与最终回答由宿主负责。
+- **二级：插件工作段。** 工作中可见，展开原生一级后也保留；默认收起，流式追加保持手动展开意图。
+- **三级：原生工作行。** 二级展开后按原顺序展示思考、工具、上下文；每行自己的详情开合保持原样。
 
-## 特性
+![混合工作段示例](assets/screenshot.png)
 
-- **回合完成自动收起**（一级）：每个回合完成后，工作过程收成一行 `已处理 X秒`，只留模型最终正文；点击展开完整工作流程（上下文注入 → 思考 → 工具调用 → 过程正文 → 最终正文）。DSH 0.1.2+ 自带原生回合摘要行（工具调用 · 消息 · subagent 计数）时，一级行向它让位不再单独显示，二级折叠不受影响。
-- **二级折叠行**：展开一级后，工具调用组与思考块各自折叠成一行 chip（`正在运行 {命令}` / `运行了命令` / `已思考`），点击展开/收起；相邻工具组合并，正文输出是硬边界（不会跨正文合并）。
-- **三级思考合并**：展开 `已思考` 后，连续思考合并为一个三级思考行（标题 `Think · 第一句`），点击展开合并内容块；原始四级行不出现。
-- **原生视觉对齐**：图标盒 16px / glyph 14px / 行高 24px / 行距 16px，颜色使用 DSH 原生 token（`--dsw-alias-label-*`），思考与命令图标取自 DSH 原生图标（`IconThinkOutline14` / `IconApiOutline14`）。
-- **展开/收起过渡动画**：点击驱动的展开（淡入 + 4px 上移，合并思考正文带高度展开）与收起（镜像淡出，后代随祖先 seat 整体消失、无跳变）均为 180ms；仅用户点击触发动画，流式协调器决策保持瞬时。
-- **流式友好**：同一个 `assistant-step` 原地补正文、React 换节点和历史乱序挂载都会重新协调；running 状态带文字平滑呼吸动画，`prefers-reduced-motion` 下停止动画（过渡动画同样禁用）。
-- **完整工作类型**：除 tool-call 外，顶层 `command` / `manual-compaction`、context 和纯图片 final 都按同一回合语义处理。
-- **可配置状态提示词**：在 设置 → 插件 → 插件配置 中可以编辑“状态提示词”，默认 `Deep sleeping...`；留空保存后恢复官方原文（当前版本为“深度求索中...”）。宿主追加的用时后缀（如 `33秒`）保留。
-- **可逆**：卸载（HMR stop）时完整还原所有折叠/隐藏/改写。
+预览来自浏览器验收场景，使用 DSH 0.1.2-rc.1 原生 disclosure、思考和回合摘要组件。
 
-## 兼容性
+## 行为
 
-| 插件版本 | 适配的 DSH |
+正文是分组边界，同一 `assistant-step` 内的“思考—正文—思考”也会切开；Markdown 换行不拆组。纯图片、SVG 和其他正文内容保持原生展示。用户消息、steering、不同 turn 和未知语义节点不会被跨越。
+
+原生一级收起时，受它控制的二级入口一起隐藏，但二级状态保留。若上下文位于原生折叠范围之外，仍保留可访问的二级入口；点击展开会按需打开原生一级。Normal 模式没有原生一级时，二级仍生效。
+
+工作摘要显示已发生的动作类型和当前运行信息，不复制推理全文。查找隐藏内容时通过 `hidden="until-found"` / `beforematch` 展开所属层级。选中、焦点和需要用户输入的工作保持可达。HMR、切换会话或异常恢复会释放插件控制。
+
+设置 → 插件 → 插件配置仍可编辑“状态提示词”，默认 `Deep sleeping...`。保存空值恢复官方文字；用时后缀保留。该功能独立于分组，服务晚到或重连不会影响二级。
+
+## 兼容性与升级
+
+| 插件 | 验证的 DSH |
 |---|---|
-| 0.1.8 | **DSH 0.1.2-rc.1+**（settings 可重连生命周期、原生回合摘要行、中文状态文案） |
-| 0.1.7 | DSH 0.1.2-rc.1+（初版适配；启动时序下设置卡可能缺席，建议升级 0.1.8） |
-| ≤ 0.1.6 | DSH 0.1.1.x |
+| 0.2.0 | 0.1.2-rc.1；浏览器验收含该版本原生组件 |
+| 0.1.8 | 0.1.2-rc.1，旧折叠实现 |
+| ≤ 0.1.6 | 0.1.1.x |
 
-0.1.7 起不再依赖被移除的 `@deepseek-ai/dsh-settings` 导出（宿主半通过可选消费者接线）；0.1.8 起客户端使用 `ctx.inject()` 等待并重连 `settingsScope` / `slots`，避免服务晚到时永久丢失设置卡。客户端注入基于 0.1.2 的 `dsh-client-modules`，未在 0.1.1 上验证。0.1.1 用户请继续使用 0.1.6。
+0.2.0 完全重写了折叠核心。升级后保留并统一二级，删除自建“已处理 X秒”一级行和三级推理全文副本；上下文不再单独拆成二级。旧 `statusText` 配置继续使用。未知 DOM 节点保留原生展示，其他宿主版本需要另行验证。
 
 ## 安装
 
-已发布 npm 包（推荐，使用构建好的版本）：
+已发布版本可用：
 
 ```bash
-dsh plugin --profile web add "dsh-auto-collapse"
+dsh plugin --profile web add dsh-auto-collapse
 ```
 
-从 GitHub 安装（开发版或需要跟随 `main` 分支时）：
+开发中的 0.2.0 先生成完整安装包，再安装命令输出的 tgz：
 
 ```bash
-dsh plugin --profile web add "github:a179-sanae/dsh-auto-collapse#main"
+npm ci
+npm run package
+dsh plugin --profile web add <生成的-tgz-绝对路径>
 ```
 
-安装后重启 DSH web 服务（或触发插件 HMR），页面 `Ctrl+Shift+R` 硬刷新即可生效。无需任何配置。
+安装后按宿主方式重载插件或重启 Web，再刷新页面。回退时安装完整旧版包，例如 `dsh-auto-collapse@0.1.8`。
 
-## 开发
+`npm run package` 与兼容别名 `npm run deploy` **只构建 tgz**，不再逐文件覆盖安装目录、读取凭据或自动停止/启动 DSH。
 
-### 项目结构
+## 开发与验证
 
-```
-src/fold.ts       核心：FoldController（状态机）+ findBlocks（块识别）+ 折叠/展开逻辑
-src/client.ts     浏览器端入口（注册插件）
-src/index.ts      host half（宿主端，Host half）
-build.mjs         构建脚本（Build script）：生成 lib/client.js、lib/index.js 与 lib/types/*
-tsconfig.build.json TypeScript 声明构建配置（Declaration build config）
-deploy.mjs        安全部署（Safe deploy）：校验 → 备份 → 替换 → 身份核验重启 → 哈希验证/回滚（DSH web 输出持久化到 ~/.dsh/logs/web.{out,err}.log）；Windows 使用 PowerShell，Linux/macOS 使用 lsof + ps
-cordis.patch.yml  profile 树挂载
-test/             fake DOM 契约、竞态、会话切换与 40 组乱序排列回归
-```
-
-### 检查
+Node.js 22+。首次浏览器验证需要 Playwright Chromium；Windows 可自动使用已安装的 Chrome/Edge，也可通过 `DSH_TEST_BROWSER` 指定可执行文件。
 
 ```bash
+npm ci
+npx playwright install chromium
 npm run check
 ```
 
-依次执行 TypeScript 检查、构建和全部回归测试。
-
-### 快速部署（本机开发）
+Linux CI 使用 `npx playwright install --with-deps chromium` 安装浏览器依赖。
 
 ```bash
-npm run deploy
+npm run test:unit       # 纯分组、身份、状态摘要
+npm run test:browser    # 当前构建的真实浏览器验收
+npm run preview        # 本地合成场景：http://127.0.0.1:43190
+npm run package        # artifacts/ 下完整 tgz
 ```
 
-脚本先核验插件/DSH 包名和 3080 监听进程身份，再做时间戳备份、替换、重启与服务端哈希验证；失败自动恢复旧 bundle。支持 Windows、Linux 和 macOS；Unix 系统默认从 `npm root -g` 定位 DSH 包，并使用 `HOME` 定位 profile。Linux/macOS 需要安装 `lsof`。可用 `DSH_AUTO_COLLAPSE_LIB`、`DSH_DIR`、`DSH_WEB_PORT`、`DSH_LOG_DIR` 覆盖默认路径。
+修改源码后先 `npm run build` 再单独运行浏览器测试或刷新预览。`npm run check` 自动执行 typecheck、构建、单元测试、浏览器测试和安装包检查。
 
-### 发布新版本
+浏览器测试使用真实 React、原生组件快照和当前发布 bundle，覆盖混合分组、同消息正文边界、原生一级、详情状态、搜索、焦点、SVG、异常恢复、设置生命周期及 100/1,000/5,000 个历史节点。完整测试还包含 30 秒无轮询检查。fixture 不依赖用户会话或凭据；完整后端部署不在隔离 fixture 的验证范围内。
 
-更新 `package.json` 中的 `version` 后，发布到 npm（`prepack` 钩子会自动构建）：
+## 代码结构
 
-```bash
-npm publish --access public
-```
+| 文件 | 职责 |
+|---|---|
+| `src/work-model.ts` / `host-contract.ts` | 识别正文边界和原生工作项，缓存宿主结构 |
+| `src/work-groups.ts` / `summary.ts` | 纯分组规则、稳定身份、二级展开意图和动作摘要 |
+| `src/dom-view.ts` / `styles.css` | 唯一二级入口、受限显隐、恢复和样式 |
+| `src/controller.ts` / `scheduler.ts` | 脏工作段协调、原生一级联动、生命周期 |
+| `src/status-text.ts` / `settings.ts` | 独立状态文案及设置卡 |
+| `src/client.ts` / `index.ts` | 客户端与宿主接线 |
 
-本机开发也可以只打包为 tgz：
-
-```bash
-npm pack --pack-destination <本地插件目录>
-```
-
-将 profile 的 `package.json` 中插件依赖更新为新 tgz 路径后重新安装插件。
-
-### 关键机制
-
-- **块识别**（`findBlocks`）：顶层节点按 tool-call、command/manual-compaction、context、thinking 和正文分类；user/steering/turn-tail 是不可跨越的硬边界。
-- **segment 协调**：每轮根据当前 DOM 顺序重建 segment；最后一个含文本或媒体的 `assistant-step` 是 final，其余正文是中间过程。稳定 flow/key 复用展开状态，不依赖一次性 mutation 事件。
-- **时长**：流式回合按 segment 分别记录 running 起点；历史回合从官方时长或 `timeStart`/turn-tail 解析。格式 `X秒` / `X分Y秒`，整分省略秒位。
-- **React 共存与可逆性**：节点替换后按稳定 key 重新绑定；一级行被移除会按原展开状态重建；所有 inline `display` 在首次改写前保存并精确恢复。
+不修改消息内容，不移动原生节点，不接管原生 renderer，不推断 final，不扫描“空 div”，不回写主滚动容器。
 
 ## 许可
 
-MIT
+MIT。测试中的原生组件快照保留 DeepSeek 的 MIT 许可。

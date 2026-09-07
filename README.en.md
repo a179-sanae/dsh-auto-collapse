@@ -1,111 +1,94 @@
 # dsh-auto-collapse
 
-> A DeepSeek Harness Web client plugin that auto-collapses tool cards and Think blocks into one-line summaries, so the chat keeps only what the model says.
+> DSH Web workflow folding: keep the native turn disclosure, combine thinking, tools and context between prose into one second-level summary, and reveal the original rows when expanded.
 >
-> 中文: [README.md](./README.md)
->
-> This plugin is listed in the Plugin marketplace: [marketplace link](https://www.dsh.so/artifact/dsh-auto-collapse/)
+> [中文](README.md) · [Plugin marketplace](https://www.dsh.so/artifact/dsh-auto-collapse/)
 
-## What it does
+## Interaction
 
-`dsh-auto-collapse` is a pure front-end DOM plugin for the DeepSeek Harness Web chat UI. It collapses the working process into one-line summaries — tool calls and reasoning no longer fill the screen, giving the chat the collapsible look of the VSCode Codex desktop client, **and it also rewrites the official status line (“深度求索中...”, formerly “Deep diving”) to a configurable “Deep sleeping...”**. It never modifies message content — it only controls visibility of the working process.
+```text
+Prose A
+▸ Thought · Used the browser · Added context · Edited files
+Prose B
+▸ Running npm run check
+Prose C
+```
 
-## Preview
+Each interval has one summary. Switching from thinking to a tool or adding context extends that interval. New prose closes it; later work starts another interval. A single work item also forms a group.
 
-![Collapsed workflow](assets/screenshot.png)
+- **Level 1 belongs to DSH:** completed-turn folding, counts and final-answer visibility.
+- **Level 2 belongs to this plugin:** one mixed-work summary between prose fragments, during streaming and after reopening the native turn.
+- **Level 3 stays native:** thinking, tool and context rows in their original order, retaining their own disclosure state.
 
-## Features
+![Mixed work groups](assets/screenshot.png)
 
-- **Turn-level auto collapse** (Level 1): when a turn finishes, the whole working process collapses into a `已处理 X秒` (processed in Xs) row, leaving only the model's final text. Click to expand the full workflow (context injections → thinking → tool calls → intermediate text → final text). On DSH 0.1.2+, which ships a native per-turn summary row (tool-call · message · subagent counts), the Level 1 row yields to it and is no longer shown; second-level folding is unaffected.
-- **Second-level rows**: after expanding level one, tool-call groups and think blocks each collapse into a single chip row (`正在运行 {command}` / `运行了命令` / `已思考`), click to expand/collapse; adjacent tool groups merge, while body text serves as a hard boundary (never merged across).
-- **Third-level think merge**: expanding `已思考` shows consecutive think rows merged into one row titled `Think · first line`, click to reveal the merged content block; raw fourth-level rows never appear.
-- **Native visual alignment**: 16px icon box / 14px glyph / 24px line height / 16px row gap; colors use DSH native tokens (`--dsw-alias-label-*`); think and command icons come from DSH native icons (`IconThinkOutline14` / `IconApiOutline14`).
-- **Stream-friendly**: in-place `assistant-step` body updates, React node replacement, and out-of-order history mounting are reconciled on every pass; running rows use a smooth text pulse motion, disabled by `prefers-reduced-motion`.
-- **Complete work-node coverage**: top-level `command` / `manual-compaction`, context nodes, and image-only finals follow the same turn semantics as tool calls.
-- **Configurable status text**: in Settings → Plugins → Plugin configuration, edit the status prompt (default `Deep sleeping...`); leaving it blank restores the official copy (“深度求索中...” in current builds). The host-appended elapsed suffix (e.g. `33秒`) is preserved.
-- **Fully reversible**: uninstalling (HMR stop) restores every collapsed/hidden/rewritten node.
+The preview is a browser acceptance fixture using native DSH 0.1.2-rc.1 disclosure, reasoning and turn-process components.
 
-## Compatibility
+## Behavior
 
-| Plugin version | DSH compatibility |
+Prose is a hard grouping boundary, including thinking/prose/thinking inside a single `assistant-step`. Markdown line breaks do not create groups. Images, SVG and other answer content remain native. Groups never cross user/steering messages, turns or unknown semantic surfaces.
+
+Closing native Level 1 hides its groups without discarding their expansion state. Context outside the native process range keeps an accessible Level 2 entry; opening it can also open the native turn. Level 2 remains available in native Normal mode.
+
+Summaries describe actions and current activity; they never replace full reasoning content. `hidden="until-found"` and `beforematch` preserve browser search. Selection, focus and pending user input stay accessible. Session changes, HMR and error recovery restore plugin-controlled attributes without overwriting later host changes.
+
+The optional status-text setting remains available under Settings → Plugins → Plugin configuration. It defaults to `Deep sleeping...`; saving an empty string restores the official wording while preserving elapsed-time suffixes. Its lifecycle is independent of grouping.
+
+## Compatibility and migration
+
+| Plugin | Verified DSH |
 |---|---|
-| 0.1.8 | **DSH 0.1.2-rc.1+** (reconnectable settings lifecycle, native turn-process rows, Chinese status copy) |
-| 0.1.7 | DSH 0.1.2-rc.1+ (initial support; the settings card can be absent under startup races, so upgrade to 0.1.8) |
-| ≤ 0.1.6 | DSH 0.1.1.x |
+| 0.2.0 | 0.1.2-rc.1; browser tests include its native widget code |
+| 0.1.8 | 0.1.2-rc.1, legacy implementation |
+| ≤ 0.1.6 | 0.1.1.x |
 
-Since 0.1.7 the plugin no longer depends on the removed `@deepseek-ai/dsh-settings` exports (the host half wires an optional consumer). Since 0.1.8 the client waits for and reconnects `settingsScope` / `slots` through `ctx.inject()`, so late services cannot permanently drop the settings card. Client injection relies on 0.1.2's `dsh-client-modules` and has not been verified on 0.1.1. DSH 0.1.1 users should stay on 0.1.6.
+0.2.0 rewrites the folding engine. It retains mixed-work Level 2, removes the custom processed-time Level 1 and copied reasoning-body layer, and includes context in its surrounding group. Existing `statusText` configuration is preserved. Unrecognized DOM nodes remain visible; other host versions need separate validation.
 
 ## Install
 
-
-Published npm package (recommended; uses the prebuilt release):
-
-```bash
-dsh plugin --profile web add "dsh-auto-collapse"
-```
-
-Install from GitHub when using the development version or following `main`:
+To install the published release:
 
 ```bash
-dsh plugin --profile web add "github:a179-sanae/dsh-auto-collapse#main"
+dsh plugin --profile web add dsh-auto-collapse
 ```
 
-Restart the DSH web service (or trigger plugin HMR), then hard-refresh the page (`Ctrl+Shift+R`). No configuration needed.
+For the local 0.2.0 candidate, build a complete tarball and install the generated path:
+
+```bash
+npm ci
+npm run package
+dsh plugin --profile web add <absolute-path-to-generated-tgz>
+```
+
+Reload the plugin or restart the host Web app, then refresh the page. Roll back by installing a complete previous package, such as `dsh-auto-collapse@0.1.8`.
+
+`npm run package` and its compatibility alias `npm run deploy` **only produce a tarball**. They no longer replace installed files individually, read credentials or stop/restart DSH.
 
 ## Development
 
-### Project layout
-
-```
-src/fold.ts       core: FoldController (state machine) + findBlocks (block recognition) + collapse/expand logic
-src/client.ts     browser entry (plugin registration)
-src/index.ts      host half (host-side entry)
-build.mjs         build script (generates lib/client.js, lib/index.js, and lib/types/*)
-tsconfig.build.json TypeScript declaration build configuration
-deploy.mjs        safe deploy: validate → back up → replace → verified restart → hash check/rollback; Windows uses PowerShell, Linux/macOS use lsof + ps
-cordis.patch.yml  profile tree mounting
-test/             fake-DOM contract, race, session-switch, and 40-order permutation regressions
-```
-
-### Checks
+Node.js 22+. Install Playwright Chromium once; Windows can also use an installed Chrome/Edge. Override the executable with `DSH_TEST_BROWSER` if needed.
 
 ```bash
+npm ci
+npx playwright install chromium
 npm run check
 ```
 
-Runs TypeScript checking, a fresh build, and the complete regression suite.
-
-### Quick deploy (local dev)
+Linux CI uses `npx playwright install --with-deps chromium`.
 
 ```bash
-npm run deploy
+npm run test:unit
+npm run test:browser
+npm run preview        # http://127.0.0.1:43190
+npm run package        # complete tarball in artifacts/
 ```
 
-Validates the plugin/DSH package identities and the process listening on port 3080, then creates a timestamped backup, replaces the bundle, restarts DSH, and verifies the served hash. Failures restore the old bundle. Windows, Linux, and macOS are supported; Unix systems locate DSH from `npm root -g` by default and use `HOME` for the profile path. Linux/macOS require `lsof`. Override defaults with `DSH_AUTO_COLLAPSE_LIB`, `DSH_DIR`, `DSH_WEB_PORT`, and `DSH_LOG_DIR`.
+Build after source changes before standalone browser testing or refreshing the preview. `npm run check` runs typechecking, a fresh build, unit tests, browser tests and package smoke tests.
 
-### Publishing a new version
+Browser tests use real React, captured native widget implementations and the current client bundle. They cover mixed groups, inline prose boundaries, native turns, details, search, focus, SVG, recovery, settings and 100/1,000/5,000 historical nodes. The complete suite includes a 30-second idle check. Fixtures use synthetic content without personal sessions or credentials; they do not validate an entire backend deployment.
 
-Update the `version` in `package.json`, then publish to npm (the `prepack` hook builds automatically):
-
-```bash
-npm publish --access public
-```
-
-For local development, you can pack a tgz without publishing:
-
-```bash
-npm pack --pack-destination <local-plugin-dir>
-```
-
-Point the plugin dependency in the profile's `package.json` to the new tarball and reinstall the plugin.
-
-### Key mechanisms
-
-- **Block recognition** (`findBlocks`): top-level nodes are classified as tool calls, command/manual-compaction cards, contexts, thinking, or body content; user/steering/turn-tail nodes are hard boundaries.
-- **Segment reconciliation**: every pass rebuilds segments from current DOM order. The last `assistant-step` containing text or media is final; earlier bodies are intermediate work. Stable flow/node keys preserve UI state without one-shot mutation bookkeeping.
-- **Duration**: streaming segments each track their own first running observation; historical segments parse official duration or the `timeStart`/turn-tail range. Whole minutes omit the seconds field.
-- **React coexistence and reversibility**: replaced nodes rebind by stable key, removed level-one rows rebuild with their expansion state, and every inline `display` value is saved before mutation and restored exactly.
+The implementation separates host recognition, ordered work modeling, pure grouping/state, summaries, DOM rendering, scheduling and optional status text. It never copies message bodies, reparents native nodes, replaces the host renderer, infers a final answer, cleans arbitrary empty elements or writes the main scroll position.
 
 ## License
 
-MIT
+MIT. Captured native test widgets retain DeepSeek's MIT license.

@@ -1,13 +1,6 @@
-/** 宿主侧官方模块的最小声明：仓库本地不安装这些包，运行时由 DSH profile 提供。 */
-declare module '@deepseek-ai/schemastery' {
-  interface Schema<T = any> {
-    default(value: T): Schema<T>
-    toJSON(): unknown
-  }
-  const z: {
-    object<T>(shape: Record<string, unknown>): Schema<T>
-    string(): Schema<string>
-  }
-  export default z
+/** CSS is bundled as text into the client module; no separate stylesheet request is needed. */
+declare module '*.css' {
+  const value: string
+  export default value
 }
 

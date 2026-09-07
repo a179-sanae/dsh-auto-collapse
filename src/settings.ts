@@ -183,12 +183,13 @@ function StatusTextCard(props: { scope: SettingsScopeLike }): any {
   const React = require('react')
   const scope = props.scope
   const [open, setOpen] = React.useState(false)
-  const [snapshot, setSnapshot] = React.useState(scope.getSnapshot())
+  const snapshot: ReturnType<SettingsScopeLike['getSnapshot']> = React.useSyncExternalStore(
+    React.useCallback((listener: () => void) => scope.subscribe(listener), [scope]),
+    React.useCallback(() => scope.getSnapshot(), [scope]),
+  )
   const [pending, setPending] = React.useState(null as { text: string; reset: boolean } | null)
   const [saving, setSaving] = React.useState(false)
   const [failed, setFailed] = React.useState(false)
-
-  React.useEffect(() => scope.subscribe(() => setSnapshot(scope.getSnapshot())), [scope])
 
   if (snapshot.status !== 'ready') return null
 
@@ -216,7 +217,8 @@ function StatusTextCard(props: { scope: SettingsScopeLike }): any {
     setFailed(false)
   }
   const save = async () => {
-    if (pending === null) return
+    if (pending === null || saving || !writable) return
+    const submitted = pending
     setSaving(true)
     setFailed(false)
     try {
@@ -224,7 +226,7 @@ function StatusTextCard(props: { scope: SettingsScopeLike }): any {
       // 手动清空并保存则是写入空字符串：让插件停止替换，恢复官方原文（深度求索中...）
       if (pending.reset) await scope.unset('statusText')
       else await scope.set('statusText', pending.text.trim())
-      setPending(null)
+      setPending((current: { text: string; reset: boolean } | null) => current === submitted ? null : current)
     } catch {
       setFailed(true)
     } finally {
@@ -232,7 +234,7 @@ function StatusTextCard(props: { scope: SettingsScopeLike }): any {
     }
   }
 
-  const blocked = !dirty || saving
+  const blocked = !dirty || saving || !writable
   const cardClass = `dshcf-settings-card${open ? ' dshcf-settings-cardOpen' : ''}`
 
   return React.createElement('li', { className: cardClass }, [
@@ -265,7 +267,7 @@ function StatusTextCard(props: { scope: SettingsScopeLike }): any {
               overridden
                 ? React.createElement('span', { className: 'dshcf-settings-badges' }, [
                     React.createElement('span', { className: 'dshcf-settings-badge' }, '已覆盖'),
-                    React.createElement('button', { type: 'button', className: 'dshcf-settings-reset', disabled: !writable, onClick: resetField }, '恢复默认'),
+                    React.createElement('button', { type: 'button', className: 'dshcf-settings-reset', disabled: !writable || saving, onClick: resetField }, '恢复默认'),
                   ])
                 : null,
             ]),
@@ -275,7 +277,7 @@ function StatusTextCard(props: { scope: SettingsScopeLike }): any {
               type: 'text',
               value: text,
               placeholder: '深度求索中...',
-              disabled: !writable,
+              disabled: !writable || saving,
               onChange: (event: { target: { value: string } }) => edit(event.target.value),
             }),
             React.createElement('p', { className: 'dshcf-settings-hint' }, '为空时恢复官方默认文案（深度求索中...）'),

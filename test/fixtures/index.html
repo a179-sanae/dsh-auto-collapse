@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH 混合工作段 · 浏览器验收</title>
+<style>
+:root { color-scheme: dark; --dsw-alias-label-primary:#ececec; --dsw-alias-label-secondary:#bcbcbc; --dsw-alias-label-tertiary:#999; --dsw-alias-border-l2:#393939; --dsw-alias-bg-layer-3:#202020; --dsw-alias-bg-layer-2:#242424; }
+body { margin:0; background:#191919; color:var(--dsw-alias-label-primary); font:14px/24px system-ui,sans-serif; }
+button,input { font:inherit; } button { cursor:pointer; }
+#root { max-width:920px; margin:28px auto; padding:0 30px; }
+.fixture-controls { display:flex; gap:12px; margin-bottom:28px; opacity:.8; }
+.fixture-controls button { background:transparent; color:#aaa; border:1px solid #444; border-radius:6px; padding:3px 10px; }
+.scroller { overflow-y:auto; max-height:calc(100vh - 120px); position:relative; }
+.flow { display:flex; flex-direction:column; gap:16px; padding:0 2px 24px; }
+.flow-item { min-width:0; }
+.flow-item[data-turn-process-hidden][hidden] { margin-bottom:-16px; }
+.assistant-root { display:flex; flex-direction:column; }
+.assistant-body { display:flex; flex-direction:column; gap:16px; }
+.assistant-body > [data-turn-process-inline][hidden] { margin-bottom:-16px; }
+.prose p { margin:0 0 12px; } .prose p:last-child { margin-bottom:0; }
+.native-row { display:flex; align-items:center; gap:6px; min-height:24px; color:#aaa; cursor:pointer; }
+.native-row:focus-visible { outline:2px solid #4d6bfe; }
+.native-icon + .native-chevron { display:none; }.native-row:hover .native-icon { display:none; }.native-row:hover .native-icon + .native-chevron { display:inline; }
+.native-summary { color:#999; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.native-turn { color:#a5a5a5; font-size:13px; background:transparent; border:0; border-bottom:1px solid #343434; padding:0 0 6px; width:100%; text-align:left; }
+.native-detail { margin:10px 0 0 22px; padding:12px; border:1px solid #393939; border-radius:8px; }
+.native-detail pre { margin:0; white-space:pre-wrap; }.think-body { white-space:pre-wrap; }
+.visually-hidden { position:absolute; width:1px; height:1px; clip-path:inset(50%); overflow:hidden; }
+[data-chat-flow-kind="user"] { color:#999; font-size:12px; }
+[data-chat-flow-kind="turn-tail"] { color:#777; font-size:12px; }
+.diagram { width:200px; height:70px; }.painted { width:200px; height:35px; background:#66bbaa; }
+.settings { padding:0; margin:24px 0; }
+</style>
+<div id="root"></div>
+<script src="/fixture.js"></script>
+<script src="/client.js"></script>
+<script>window.fixture.install()</script>
+</html>

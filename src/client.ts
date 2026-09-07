@@ -2,16 +2,14 @@
  * dsh-auto-collapse — browser half（客户端插件入口）。
  *
  * 职责：
- * 1. 把会话正文之外的工具 display（read / bash / web_search / think 推理
- *    块等非正文卡片）折叠成内联的一行，折叠行实时显示当前正在进行的工作
- *    （工具名 + 正在执行的命令/参数，或思考的最新一行）；运行中标题与摘
- *    要带平滑呼吸动画（Pulse）。点击展开/收起。
+ * 1. 按正文边界，将思考、工具、上下文统一为一个二级工作段。
+ *    原生一级仍由 DSH 控制；二级展开显示原生三级，不复制正文或推理全文。
  * 2. 把官方 ChatView 尾部运行状态行（"深度求索中..." / 旧版
- *    "Deep diving..."）替换为可配置的 "Deep sleeping..."（流光特效不变，始终生效）。
+ *    "Deep diving..."）替换为可配置的 "Deep sleeping..."，独立于分组协调器。
  * 3. 通过 DSH 设置 → 插件 → 插件配置 的“状态提示词”卡片编辑替换文案。
  *
  * 实现方式：纯 DOM 层（MutationObserver + rAF 合并），零核心改动、零运行时
- * 依赖。识别依据是 ChatView 渲染时写死的稳定 data 属性
+ * 分组运行时依赖。识别依据是已验证 DSH 0.1.2 的 data 属性
  * （data-chat-flow / data-chat-call-id / data-tool / data-state /
  * data-variant / data-chat-anchor-key / data-subcalls / data-follow-end /
  * data-disclosure-row），与官方 Web 客户端的 DOM 契约对齐。
@@ -72,7 +70,7 @@ export function apply(ctx: FoldClientCtx): void {
 
       const scope = settingsScope.bind({ namespace: AUTO_COLLAPSE_NS })
       const scopedStatusText = statusTextProvider(scope)
-      const offScope = scope.subscribe(() => controller.refresh())
+      const offScope = scope.subscribe(() => controller.refreshStatus())
       let offSettings: () => void
       try {
         offSettings = setupSettingsCard({ slots }, scope)
@@ -81,7 +79,7 @@ export function apply(ctx: FoldClientCtx): void {
         throw error
       }
       readStatusText = scopedStatusText
-      controller.refresh()
+      controller.refreshStatus()
 
       return () => {
         offScope()
@@ -89,7 +87,7 @@ export function apply(ctx: FoldClientCtx): void {
         // 旧服务的迟到 cleanup 不得覆盖已重连的新源。
         if (readStatusText === scopedStatusText) {
           readStatusText = fallbackStatusText
-          controller.refresh()
+          controller.refreshStatus()
         }
       }
     }, 'dsh-auto-collapse: settings scope + plugin card')

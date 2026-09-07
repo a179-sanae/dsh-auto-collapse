@@ -1,8 +1,11 @@
 {
   "name": "dsh-auto-collapse",
-  "version": "0.1.8",
-  "description": "DeepSeek Harness Web 客户端插件：把会话里的工具卡片与 Think 推理块折叠成一行，折叠态实时显示当前正在进行的工作（工具名 + 正在执行的命令/参数、或思考内容），运行中带流光动画；点击展开/收起。让界面只保留模型说的话。",
+  "version": "0.2.0",
+  "description": "DSH Web 工作段折叠：保留原生一级，将正文之间的思考、工具、上下文合为一个二级，展开后显示原生三级。",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/a179-sanae/dsh-auto-collapse.git"
@@ -39,14 +42,19 @@
   "scripts": {
     "build": "node build.mjs",
     "deploy": "node deploy.mjs",
+    "package": "node deploy.mjs",
     "test": "node test/run-all.mjs",
+    "test:unit": "node test/run-unit.mjs",
+    "test:browser": "playwright test",
+    "preview": "node test/server.mjs",
     "typecheck": "tsc --noEmit --pretty false",
     "check": "npm run typecheck && npm test",
     "prepack": "node build.mjs"
   },
   "files": [
     "lib",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "assets/screenshot.png"
   ],
   "keywords": [
     "dsh",
@@ -59,7 +67,10 @@
   ],
   "license": "MIT",
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "esbuild": "0.25.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "typescript": "5.9.3"
   },
   "peerDependencies": {

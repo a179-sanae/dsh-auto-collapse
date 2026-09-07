@@ -4,3 +4,7 @@ node_modules/
 handoff.md
 codex-ui-reference.md
 plan
+.test-build/
+.test-results/
+playwright-report/
+artifacts/
