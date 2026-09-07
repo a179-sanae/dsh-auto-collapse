@@ -135,10 +135,14 @@ export class GroupView {
     for (const [name, value] of Object.entries(attributes)) if (row.button.getAttribute(name) !== value) row.button.setAttribute(name, value)
   }
 
-  prepare(id: string, items: readonly WorkItem[], expanded: boolean, summary: GroupSummary): PreparedGroup {
+  prepare(id: string, items: readonly WorkItem[], expanded: boolean, summary: GroupSummary, turnCollapsed: boolean): PreparedGroup {
     const available = items.filter(item => item.row.isConnected && !nativeHidden(item.row, this.flow) && !this.externallyHidden(item))
-    const anchor = available[0]?.cover
-    return { id, expanded, summary, anchor, desired: new Set(expanded ? [] : available.map(item => item.cover)) }
+    // A scoped system prompt belongs under L1 even though DSH deliberately leaves it unmarked.
+    // Keep its native row in place and lease hiding independently of the saved L2 open intent.
+    const hiddenByTurn = (item: WorkItem) => turnCollapsed && item.followNativeTurn
+    const anchor = available.find(item => !hiddenByTurn(item))?.cover
+    const desired = new Set(available.filter(item => !expanded || hiddenByTurn(item)).map(item => item.cover))
+    return { id, expanded, summary, anchor, desired }
   }
 
   apply({ id, expanded, summary, anchor, desired }: PreparedGroup): void {

@@ -28,7 +28,7 @@ export declare class GroupView {
     private externallyHidden;
     private create;
     summarize(id: string, summary: GroupSummary, expanded: boolean): void;
-    prepare(id: string, items: readonly WorkItem[], expanded: boolean, summary: GroupSummary): PreparedGroup;
+    prepare(id: string, items: readonly WorkItem[], expanded: boolean, summary: GroupSummary, turnCollapsed: boolean): PreparedGroup;
     apply({ id, expanded, summary, anchor, desired }: PreparedGroup): void;
     focus(id: string): void;
     remove(id: string): void;

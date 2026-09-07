@@ -12,5 +12,6 @@ export declare function nativeHidden(row: HTMLElement, flow: HTMLElement): boole
 export declare function nativeOwnsHidden(element: HTMLElement): boolean;
 export declare function findFlow(): HTMLElement | null;
 export declare function nativeControls(flow: HTMLElement): Map<string, HTMLButtonElement>;
+export declare function nativeCollapsed(button: HTMLButtonElement | undefined): boolean;
 export declare function openNative(button: HTMLButtonElement | undefined): void;
 export declare const OBSERVED_ATTRIBUTES: string[];

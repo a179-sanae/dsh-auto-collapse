@@ -3,7 +3,7 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
-import { NativeDisclosureRow, NativeReasoningRow, NativeTurnProcess, useSearchableHidden } from './native.jsx'
+import { NativeDisclosureRow, NativeReasoningRow, NativeTurnProcess, NativeSystemPrompt, useSearchableHidden } from './native.jsx'
 
 let plugin
 window.__ModuleLoader__ = { load(spec) { plugin = spec.factory(id => { if (id === 'react') return React; throw new Error(`Unexpected dependency: ${id}`) }) } }
@@ -33,6 +33,7 @@ function setNative(turn, open) { publish({ ...current, nativeTurns: { ...current
 
 function translate(key, values = {}) {
   if (key === 'message.think') return 'Think'
+  if (key === 'message.systemPrompt') return '系统提示词'
   if (key === 'row.running') return '运行中'
   if (key.endsWith('.separator')) return ' · '
   if (key.endsWith('.thoughtForAWhile')) return '已思考'
@@ -65,7 +66,9 @@ function ProcessReasoning({ hidden, turn, children }) {
 const Seat = React.memo(function Seat({ node, native }) {
   const turn = node.turn ?? null
   const enabled = native?.enabled === true
-  const hidden = node.kind === 'turn-process' ? !enabled : enabled && node.member === true && native.open === false
+  // DSH lists system-prompt in TURN_PROCESS_INDEPENDENT_KINDS, outside process membership.
+  const member = node.member === true && node.kind !== 'system-prompt'
+  const hidden = node.kind === 'turn-process' ? !enabled : enabled && member && native.open === false
   const reveal = React.useCallback(() => { if (turn !== null) setNative(turn, true) }, [turn])
   const ref = useSearchableHidden(hidden, reveal)
   let contents
@@ -98,12 +101,13 @@ const Seat = React.memo(function Seat({ node, native }) {
   else if (node.kind === 'context') contents = <Disclosure title="上下文注入" summary={node.summary} initialOpen={node.initialOpen}>
     <div data-context-injection-body="true" data-context-form="markdown">{node.text}</div>
   </Disclosure>
+  else if (node.kind === 'system-prompt') contents = <NativeSystemPrompt text={node.text ?? 'Synthetic system prompt'} t={translate} />
   else if (node.kind === 'command' || node.kind === 'manual-compaction') contents = <div data-variant="others" data-state={node.state ?? 'ok'}>
     <Disclosure title={node.kind} summary={node.summary}>{node.text}</Disclosure>
   </div>
   else contents = node.text ?? ''
   return <div ref={ref} className="flow-item" data-chat-flow-key={node.id} data-chat-anchor-key={node.id} data-chat-flow-kind={node.kind}
-    data-chat-turn={turn ?? undefined} data-turn-process-member={node.member && enabled || undefined} data-turn-process-hidden={hidden || undefined}>
+    data-chat-turn={turn ?? undefined} data-turn-process-member={member && enabled || undefined} data-turn-process-hidden={hidden || undefined}>
     {contents}
   </div>
 })

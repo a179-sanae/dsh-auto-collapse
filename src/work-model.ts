@@ -9,12 +9,15 @@ export interface WorkItem {
   row: HTMLElement
   /** Largest ancestor proved to contain only work, never a prose ancestor. */
   cover: HTMLElement
+  /** DSH leaves scoped system prompts outside its native process membership. */
+  followNativeTurn: boolean
 }
 
 interface SeatSnapshot { tokens: FlowToken[]; items: WorkItem[] }
 export interface WorkSnapshot { tokens: FlowToken[]; items: Map<string, WorkItem> }
 
 const ASSISTANT_KINDS = new Set(['assistant-step', 'assistant'])
+const CONTEXT_KINDS = new Set(['context', 'system-prompt'])
 const COMMAND_KINDS = new Set(['command', 'manual-compaction'])
 
 function readSeat(seat: HTMLElement, fallback: string): SeatSnapshot {
@@ -29,16 +32,19 @@ function readSeat(seat: HTMLElement, fallback: string): SeatSnapshot {
   }
   const boundary = (id: string, hard: boolean): FlowToken => ({ type: 'boundary', id: `${key}:${id}`, turn, hard })
   const add = (row: HTMLElement, workKind: WorkKind, suffix: string): WorkItem => {
-    const item: WorkItem = { id: JSON.stringify([key, workKind, suffix]), turn, kind: workKind, seat, row, cover: row }
+    const item: WorkItem = {
+      id: JSON.stringify([key, workKind, suffix]), turn, kind: workKind, seat, row, cover: row,
+      followNativeTurn: kind === 'system-prompt' && turn !== null,
+    }
     result.items.push(item)
     return item
   }
   const token = (item: WorkItem): FlowToken => ({ type: 'work', id: item.id, turn, kind: item.kind })
 
-  if (kind === 'context' || COMMAND_KINDS.has(kind)) {
+  if (CONTEXT_KINDS.has(kind) || COMMAND_KINDS.has(kind)) {
     // An empty command skeleton has no content to hide and no usable summary yet.
     if (seat.childNodes.length === 0) return result
-    const item = add(seat, kind === 'context' ? 'context' : 'command', '')
+    const item = add(seat, CONTEXT_KINDS.has(kind) ? 'context' : 'command', '')
     result.tokens.push(token(item))
     return result
   }

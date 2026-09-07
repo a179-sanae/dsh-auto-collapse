@@ -24,7 +24,7 @@ function unpack(buffer) {
 
 test('complete tgz exposes both host and client with no legacy engine or development files', () => {
   const result = preparePackage({ build: false, outputDir: join(root, '.test-build/package') })
-  assert.equal(result.version, '0.2.0')
+  assert.equal(result.version, JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version)
   const files = unpack(readFileSync(result.file))
   const manifest = JSON.parse(files.get('package/package.json'))
   assert.equal(manifest.exports['./client'].default, './lib/client.js')

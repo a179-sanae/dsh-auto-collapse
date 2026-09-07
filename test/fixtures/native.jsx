@@ -37,8 +37,10 @@ const Rn = { root: 'disclosure', row: 'native-row', iconIdle: 'native-icon', che
 const Dl = props => JSX.jsx('svg', { ...props, width: 14, height: 14, viewBox: '0 0 14 14', 'aria-hidden': true, children: JSX.jsx('path', { d: 'm4 5 3 3 3-3', fill: 'none', stroke: 'currentColor' }) })
 const ReasoningRow_module_css_default = { root: 'native-think', row: 'native-row', leading: 'native-leading', title: 'native-title', chevron: 'native-chevron', separator: 'native-separator', summary: 'native-summary', summaryText: 'native-summary-text', thinkBody: 'think-body' }
 const TurnProcessNodeView_module_css_default = { root: 'native-turn', label: 'native-label', chevron: 'native-chevron' }
+const ContextInjectionRow_module_css_default = { root: 'native-context', chevron: 'native-chevron', body: 'native-detail' }
 const accessibility_module_css_default = { visuallyHidden: 'visually-hidden' }
-const _deepseek_ai_dsh_client_ui_primitives = { DisclosureRow: jd, IconThinkOutline14: Dl, IconChevronDownOutline14: Dl }
+const _deepseek_ai_dsh_client_ui_primitives = { DisclosureRow: jd, IconThinkOutline14: Dl, IconChevronDownOutline14: Dl, IconBrowseOutline16: Dl }
+const OpaqueBody = ({ content }) => JSX.jsx('pre', { children: content.map(block => block.text).join('') })
 
 function jd({icon:n,title:i,open:o,expandable:l,onToggle:u,expandOnRowClick:c=!1,previewChevron:h=l,keepContentWhenOpen:m=!1,collapsedContent:C,children:g,className:w,rowClassName:_,leadingClassName:y,chevronClassName:k,titleClassName:j}){const N=l&&c,H=U=>{U.stopPropagation(),u()},z=U=>{!N||U.key!=="Enter"&&U.key!==" "||(U.preventDefault(),u())},Z=h?d.jsxs(d.Fragment,{children:[d.jsx("span",{className:Rn.iconIdle,children:n}),d.jsx(Dl,{className:Ce(k,Rn.chevronHover)})]}):n,q=o?d.jsx(Dl,{className:k}):Z;return d.jsxs("div",{className:Ce(Rn.root,w),"data-open":o||void 0,children:[d.jsxs("div",{className:Ce(Rn.row,_),"data-disclosure-row":!0,"data-expandable":N||void 0,role:N?"button":void 0,tabIndex:N?0:void 0,"aria-expanded":N?o:void 0,onClick:N?u:void 0,onKeyDown:N?z:void 0,children:[l&&!N?d.jsx("button",{type:"button",className:Ce(Rn.leading,y),"aria-expanded":o,onClick:H,children:q}):d.jsx("span",{className:Ce(Rn.leading,y),children:q}),d.jsx("span",{className:Ce(Rn.title,j),children:i}),(m||!o)&&C]}),o&&g]})}
 
@@ -161,4 +163,46 @@ function jd({icon:n,title:i,open:o,expandable:l,onToggle:u,expandOnRowClick:c=!1
 			});
 		});
 
-export { jd as NativeDisclosureRow, ReasoningRow as NativeReasoningRow, TurnProcessNodeView as NativeTurnProcess, useSearchableHidden }
+/**
+		* Render one complete system prompt as a collapsed disclosure whose expanded
+		* body is the same opaque context chrome: 141px code-block scrollport and
+		* model-facing text with its real line breaks.
+		* @param props - Complete prompt text and the locale seat.
+		* @returns The system-prompt disclosure row.
+		*/
+		function SystemPromptRow({ text, t }) {
+			const [open, setOpen] = (0, react.useState)(false);
+			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.DisclosureRow, {
+				className: ContextInjectionRow_module_css_default.root,
+				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBrowseOutline16, { size: 14 }),
+				chevronClassName: ContextInjectionRow_module_css_default.chevron,
+				title: t("message.systemPrompt"),
+				open,
+				expandable: true,
+				expandOnRowClick: true,
+				onToggle: () => {
+					setOpen((value) => !value);
+				},
+				children: (0, react_jsx_runtime.jsx)("div", {
+					className: ContextInjectionRow_module_css_default.body,
+					"data-system-prompt-body": true,
+					children: (0, react_jsx_runtime.jsx)(OpaqueBody, {
+						content: [{
+							type: "text",
+							text
+						}],
+						source: null,
+						t
+					})
+				})
+			});
+		}
+		/** System-prompt keyed Chat renderer. */
+		const SystemPromptNodeView = (0, react.memo)(function SystemPromptNodeView({ node, t }) {
+			return (0, react_jsx_runtime.jsx)(SystemPromptRow, {
+				text: node.data.text,
+				t
+			});
+		});
+
+export { jd as NativeDisclosureRow, ReasoningRow as NativeReasoningRow, TurnProcessNodeView as NativeTurnProcess, SystemPromptRow as NativeSystemPrompt, useSearchableHidden }

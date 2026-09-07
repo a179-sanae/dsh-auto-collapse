@@ -1,6 +1,6 @@
 {
   "name": "dsh-auto-collapse",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "DSH Web 工作段折叠：保留原生一级，将正文之间的思考、工具、上下文合为一个二级，展开后显示原生三级。",
   "type": "module",
   "engines": {

@@ -1,4 +1,4 @@
-import { elementOf, findFlow, nativeControls, OBSERVED_ATTRIBUTES, openNative, pluginOwned, seatOf } from './host-contract.js'
+import { elementOf, findFlow, nativeCollapsed, nativeControls, OBSERVED_ATTRIBUTES, openNative, pluginOwned, seatOf } from './host-contract.js'
 import { WorkModel, type WorkItem } from './work-model.js'
 import { groupWork, GroupState, type WorkGroup } from './work-groups.js'
 import { needsAttention, readWorkInfo } from './work-info.js'
@@ -165,6 +165,7 @@ export class FoldController {
   private rebuild(flow: HTMLElement): void {
     const previousItems = this.items
     const previousGroups = this.groups
+    const previousControls = this.controls
     const snapshot = this.model.read(flow, this.dirtySeats, this.force)
     const groups = groupWork(snapshot.tokens)
     this.state.reconcile(groups)
@@ -181,6 +182,7 @@ export class FoldController {
       const previous = previousGroups.get(group.id)
       if (this.force || previous === undefined || previous.items.length !== group.items.length || previous.items.some((id, i) => id !== group.items[i])) this.dirtyGroups.add(group.id)
       if (group.turn !== null) {
+        if (previousControls.get(group.turn) !== this.controls.get(group.turn)) this.dirtyGroups.add(group.id)
         const siblings = this.turnGroups.get(group.turn) ?? new Set<string>()
         siblings.add(group.id)
         this.turnGroups.set(group.turn, siblings)
@@ -211,7 +213,8 @@ export class FoldController {
       if (group.turn !== null) openNative(this.controls.get(group.turn))
     }
     this.stats.groupUpdates++
-    return this.view?.prepare(group.id, items, this.state.isExpanded(group.id), summarize(group.items.map(id => this.infos.get(id)!).filter(Boolean)))
+    const turnCollapsed = group.turn !== null && nativeCollapsed(this.controls.get(group.turn))
+    return this.view?.prepare(group.id, items, this.state.isExpanded(group.id), summarize(group.items.map(id => this.infos.get(id)!).filter(Boolean)), turnCollapsed)
   }
 
   private flush(): void {

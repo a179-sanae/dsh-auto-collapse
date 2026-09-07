@@ -7,6 +7,8 @@ export interface WorkItem {
     row: HTMLElement;
     /** Largest ancestor proved to contain only work, never a prose ancestor. */
     cover: HTMLElement;
+    /** DSH leaves scoped system prompts outside its native process membership. */
+    followNativeTurn: boolean;
 }
 export interface WorkSnapshot {
     tokens: FlowToken[];

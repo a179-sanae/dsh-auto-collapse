@@ -44,10 +44,14 @@ export function nativeControls(flow: HTMLElement): Map<string, HTMLButtonElement
   return result
 }
 
-export function openNative(button: HTMLButtonElement | undefined): void {
-  if (button === undefined || !button.isConnected) return
+export function nativeCollapsed(button: HTMLButtonElement | undefined): boolean {
+  if (button === undefined || !button.isConnected) return false
   const expanded = button.getAttribute('aria-expanded')
-  if (expanded === 'false' || (expanded === null && !button.hasAttribute('data-open'))) {
+  return expanded === 'false' || (expanded === null && !button.hasAttribute('data-open'))
+}
+
+export function openNative(button: HTMLButtonElement | undefined): void {
+  if (button !== undefined && nativeCollapsed(button)) {
     const focused = button.ownerDocument.activeElement
     button.click()
     // Native clicks focus the turn button. A selection/search reveal must not steal typing focus.
@@ -60,7 +64,7 @@ export function openNative(button: HTMLButtonElement | undefined): void {
 
 export const OBSERVED_ATTRIBUTES = [
   'data-chat-flow-key', 'data-chat-anchor-key', 'data-chat-flow-kind', 'data-chat-turn',
-  'data-variant', 'data-tool', 'data-state', 'data-selected', 'data-open', 'data-expanded',
+  'data-variant', 'data-tool', 'data-state', 'data-selected', 'data-open', 'data-expanded', 'aria-expanded',
   'data-turn-process-member', 'data-turn-process-hidden', 'data-turn-process-inline',
   'hidden', 'style', 'class',
 ]

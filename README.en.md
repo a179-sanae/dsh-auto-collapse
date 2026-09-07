@@ -30,6 +30,8 @@ Prose is a hard grouping boundary, including thinking/prose/thinking inside a si
 
 Closing native Level 1 hides its groups without discarding their expansion state. Context outside the native process range keeps an accessible Level 2 entry; opening it can also open the native turn. Level 2 remains available in native Normal mode.
 
+System prompts join the adjacent context work group. A prompt with an explicit turn owner follows that native Level 1 disclosure. Reopening Level 1 shows Level 2 first; opening Level 2 reveals the original system-prompt row with its detail state preserved.
+
 Summaries describe actions and current activity; they never replace full reasoning content. `hidden="until-found"` and `beforematch` preserve browser search. Selection, focus and pending user input stay accessible. Session changes, HMR and error recovery restore plugin-controlled attributes without overwriting later host changes.
 
 The optional status-text setting remains available under Settings → Plugins → Plugin configuration. It defaults to `Deep sleeping...`; saving an empty string restores the official wording while preserving elapsed-time suffixes. Its lifecycle is independent of grouping.
@@ -38,7 +40,7 @@ The optional status-text setting remains available under Settings → Plugins �
 
 | Plugin | Verified DSH |
 |---|---|
-| 0.2.0 | 0.1.2-rc.1; browser tests include its native widget code |
+| 0.2.x | 0.1.2-rc.1; browser tests include its native widget code |
 | 0.1.8 | 0.1.2-rc.1, legacy implementation |
 | ≤ 0.1.6 | 0.1.1.x |
 
@@ -52,7 +54,7 @@ To install the published release:
 dsh plugin --profile web add dsh-auto-collapse
 ```
 
-For the local 0.2.0 candidate, build a complete tarball and install the generated path:
+To install from source, build a complete tarball and install the generated path:
 
 ```bash
 npm ci

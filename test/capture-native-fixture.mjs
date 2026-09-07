@@ -49,8 +49,10 @@ const Rn = { root: 'disclosure', row: 'native-row', iconIdle: 'native-icon', che
 const Dl = props => JSX.jsx('svg', { ...props, width: 14, height: 14, viewBox: '0 0 14 14', 'aria-hidden': true, children: JSX.jsx('path', { d: 'm4 5 3 3 3-3', fill: 'none', stroke: 'currentColor' }) })
 const ReasoningRow_module_css_default = { root: 'native-think', row: 'native-row', leading: 'native-leading', title: 'native-title', chevron: 'native-chevron', separator: 'native-separator', summary: 'native-summary', summaryText: 'native-summary-text', thinkBody: 'think-body' }
 const TurnProcessNodeView_module_css_default = { root: 'native-turn', label: 'native-label', chevron: 'native-chevron' }
+const ContextInjectionRow_module_css_default = { root: 'native-context', chevron: 'native-chevron', body: 'native-detail' }
 const accessibility_module_css_default = { visuallyHidden: 'visually-hidden' }
-const _deepseek_ai_dsh_client_ui_primitives = { DisclosureRow: jd, IconThinkOutline14: Dl, IconChevronDownOutline14: Dl }
+const _deepseek_ai_dsh_client_ui_primitives = { DisclosureRow: jd, IconThinkOutline14: Dl, IconChevronDownOutline14: Dl, IconBrowseOutline16: Dl }
+const OpaqueBody = ({ content }) => JSX.jsx('pre', { children: content.map(block => block.text).join('') })
 
 ${disclosure}
 
@@ -60,7 +62,9 @@ ${region('ReasoningRow')}
 
 ${region('TurnProcessNodeView')}
 
-export { jd as NativeDisclosureRow, ReasoningRow as NativeReasoningRow, TurnProcessNodeView as NativeTurnProcess, useSearchableHidden }
+${region('SystemPromptRow')}
+
+export { jd as NativeDisclosureRow, ReasoningRow as NativeReasoningRow, TurnProcessNodeView as NativeTurnProcess, SystemPromptRow as NativeSystemPrompt, useSearchableHidden }
 `
 writeFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures/native.jsx'), source)
-console.log('Captured exact native disclosure, reasoning, turn-process and searchable-hidden widgets.')
+console.log('Captured exact native disclosure, reasoning, turn-process, system-prompt and searchable-hidden widgets.')
