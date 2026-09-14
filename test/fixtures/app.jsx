@@ -1,12 +1,48 @@
-// React integration fixture for the observed DSH 0.1.2-rc.1 DOM contract.
+// React integration fixture for the observed DSH 0.1.5-rc.2 DOM contract.
 // Native disclosure bodies are lazy mounted; hidden uses the host's until-found lifecycle.
 import React from 'react'
+import * as JSX from 'react/jsx-runtime'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
-import { NativeDisclosureRow, NativeReasoningRow, NativeTurnProcess, NativeSystemPrompt, useSearchableHidden } from './native.jsx'
+import { NativeDisclosureRow, NativeReasoningRow, NativeTurnProcess, NativeSystemPrompt, nativeHostVersion, useSearchableHidden } from './native.jsx'
+import { NativeTerminalBlock } from './native-terminal.jsx'
 
 let plugin
-window.__ModuleLoader__ = { load(spec) { plugin = spec.factory(id => { if (id === 'react') return React; throw new Error(`Unexpected dependency: ${id}`) }) } }
+const nativeRenderers = new Map()
+const nativeHost = { home: 'C:\\Users\\fixture' }
+const nativeSessions = { byId: { fixture: { cwd: 'C:\\work' } } }
+const useHostInfo = select => select(nativeHost)
+const useSessions = select => select(nativeSessions)
+const NativeGlyph = ({ className, size = 14 }) => <svg className={className} width={size} height={size} viewBox="0 0 14 14" aria-hidden="true"><path d="m4 5 3 3 3-3" fill="none" stroke="currentColor" /></svg>
+const nativePrimitives = new Proxy({
+  DisclosureRow: NativeDisclosureRow,
+  TerminalBlock: NativeTerminalBlock,
+  StateDot: ({ state }) => <span data-state={state} aria-hidden="true">●</span>,
+}, { get(bindings, name) {
+  if (name in bindings) return bindings[name]
+  if (typeof name === 'string' && name.startsWith('Icon')) return NativeGlyph
+  throw new Error(`Native fixture does not bind primitive ${String(name)}`)
+} })
+const nativeContext = {
+  remote: { $host: nativeHost },
+  on() { return () => {} },
+  slots: {
+    inject(_slot, setup) { setup(); return () => {} },
+    register({ name, key }, renderer) { nativeRenderers.set(`${name}:${key}`, renderer) },
+  },
+  plugin(extension) { extension.apply(nativeContext) },
+}
+window.__ModuleLoader__ = { load(spec) {
+  const api = spec.factory(id => {
+    if (id === 'react') return React
+    if (id === 'react/jsx-runtime') return JSX
+    if (id === '@deepseek-ai/dsh-client-ui-primitives') return nativePrimitives
+    throw new Error(`Unexpected dependency: ${id}`)
+  })
+  if (spec.id === 'dsh-auto-collapse') plugin = api
+  else if (spec.id === '@deepseek-ai/dsh-client-ui-tool') api.apply(nativeContext)
+  else throw new Error(`Unexpected native module: ${spec.id}`)
+} }
 
 const demo = () => ({
   nativeTurns: { '1': { enabled: true, open: true } },
@@ -34,7 +70,13 @@ function setNative(turn, open) { publish({ ...current, nativeTurns: { ...current
 function translate(key, values = {}) {
   if (key === 'message.think') return 'Think'
   if (key === 'message.systemPrompt') return '系统提示词'
+  if (key === 'message.systemPromptUpdate') return '系统提示词更新'
   if (key === 'row.running') return '运行中'
+  if (key === 'row.failed') return '失败'
+  if (key === 'row.stopped') return '已停止'
+  if (key === 'tool.title.pwsh') return 'PowerShell'
+  if (key === 'terminal.exitCode') return `exit code: ${values.code}`
+  if (key === 'terminal.signal') return `signal: ${values.signal}`
   if (key.endsWith('.separator')) return ' · '
   if (key.endsWith('.thoughtForAWhile')) return '已思考'
   if (key.includes('.toolCalls.')) return `${values.count} 次工具调用`
@@ -63,6 +105,18 @@ function ProcessReasoning({ hidden, turn, children }) {
   return <div ref={useSearchableHidden(hidden, reveal)} data-turn-process-inline={hidden || undefined}>{children}</div>
 }
 
+function renderNativeSlot(name, owner, options) {
+  const Renderer = nativeRenderers.get(`${name}:${options.entryKey}`)
+  return Renderer === undefined ? options.fallback : <Renderer {...owner} t={translate} sessionId="fixture" useSessions={useSessions} />
+}
+
+function NativeTool({ block }) {
+  const Tree = nativeRenderers.get('conversation.chat.node:tool-call')
+  if (Tree === undefined) throw new Error('The captured native Tool bundle has not loaded')
+  return <Tree node={{ data: { root: block } }} cwd={nativeSessions.byId.fixture.cwd} useHostInfo={useHostInfo} t={translate}
+    renderSlot={renderNativeSlot} inspectCall={() => {}} openFile={() => {}} />
+}
+
 const Seat = React.memo(function Seat({ node, native }) {
   const turn = node.turn ?? null
   const enabled = native?.enabled === true
@@ -89,6 +143,7 @@ const Seat = React.memo(function Seat({ node, native }) {
           : (block.text ?? '').split('\n\n').map((paragraph, i) => <p key={i}>{paragraph}</p>)}
         </div>)}</div>
   </div>
+  else if (node.kind === 'tool-call' && node.nativeBlock !== undefined) contents = <NativeTool block={node.nativeBlock} />
   else if (node.kind === 'tool-call') contents = <div data-chat-call-id={node.callId ?? node.id} data-selected={node.selected || undefined}>
     <div data-tool={node.tool ?? 'bash'} data-state={node.state ?? 'ok'}>
       <Disclosure title={node.tool ?? 'Bash'} summary={node.summary} initialOpen={node.initialOpen} keepSummary>
@@ -101,7 +156,7 @@ const Seat = React.memo(function Seat({ node, native }) {
   else if (node.kind === 'context') contents = <Disclosure title="上下文注入" summary={node.summary} initialOpen={node.initialOpen}>
     <div data-context-injection-body="true" data-context-form="markdown">{node.text}</div>
   </Disclosure>
-  else if (node.kind === 'system-prompt') contents = <NativeSystemPrompt text={node.text ?? 'Synthetic system prompt'} t={translate} />
+  else if (node.kind === 'system-prompt') contents = <NativeSystemPrompt text={node.text ?? 'Synthetic system prompt'} update={node.update} t={translate} />
   else if (node.kind === 'command' || node.kind === 'manual-compaction') contents = <div data-variant="others" data-state={node.state ?? 'ok'}>
     <Disclosure title={node.kind} summary={node.summary}>{node.text}</Disclosure>
   </div>
@@ -140,6 +195,7 @@ let serviceCleanups = []
 let finishSave
 function stopServices() { for (const off of serviceCleanups.splice(0).reverse()) off(); card = null; scope = null; publish({ ...current }) }
 window.fixture = {
+  hostVersion: nativeHostVersion,
   load(model) {
     publish({ nativeTurns: {}, ...model, session: current.session + 1 })
   },

@@ -25,6 +25,11 @@ button,input { font:inherit; } button { cursor:pointer; }
 .native-turn { color:#a5a5a5; font-size:13px; background:transparent; border:0; border-bottom:1px solid #343434; padding:0 0 6px; width:100%; text-align:left; }
 .native-detail { margin:10px 0 0 22px; padding:12px; border:1px solid #393939; border-radius:8px; }
 .native-detail pre { margin:0; white-space:pre-wrap; }.think-body { white-space:pre-wrap; }
+.native-terminal { padding:12px; border-radius:8px; font:12px/18px monospace; }
+.native-terminal-header { display:flex; justify-content:space-between; gap:12px; margin-bottom:8px; }
+.native-terminal-prompt-line { display:flex; gap:6px; }
+.native-terminal-output { white-space:pre-wrap; overflow-wrap:anywhere; max-height:224px; overflow-y:auto; }
+.native-terminal-status { color:#e5484d; white-space:nowrap; }
 .visually-hidden { position:absolute; width:1px; height:1px; clip-path:inset(50%); overflow:hidden; }
 [data-chat-flow-kind="user"] { color:#999; font-size:12px; }
 [data-chat-flow-kind="turn-tail"] { color:#777; font-size:12px; }
@@ -33,6 +38,7 @@ button,input { font:inherit; } button { cursor:pointer; }
 </style>
 <div id="root"></div>
 <script src="/fixture.js"></script>
+<script src="/native-tool.js"></script>
 <script src="/client.js"></script>
 <script>window.fixture.install()</script>
 </html>

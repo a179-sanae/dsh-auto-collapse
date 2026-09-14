@@ -1,8 +1,8 @@
 /*
-Captured native widgets from @deepseek-ai/dsh 0.1.2-rc.1.
+Captured native widgets from @deepseek-ai/dsh 0.1.5-rc.2.
 Functions below are unmodified; only their dependency/CSS bindings are supplied by this test fixture.
-Chat bundle SHA-256: 9c9874c57b7d3e5a71222a72e0f19ed8d884c40f895d898640c882d49bd1b231
-Frontend bundle SHA-256: 9e845cbbe80482a49831d912b9c02324c5ff1e8c35b9cc5f7009ecbe6e4537c1
+Chat bundle SHA-256: 6527556d25c7b2a27f2e3bfb96cc2ae3d9244f1213147e245b17684ad8d9e396
+Frontend bundle SHA-256: ae6b5df63da1ac26890eeb1847272005ab3860048d8fb46de1d08732861703c3
 
 MIT License
 
@@ -33,16 +33,17 @@ const react = React
 const react_jsx_runtime = JSX
 const d = JSX
 const Ce = (...classes) => classes.filter(Boolean).join(' ')
-const Rn = { root: 'disclosure', row: 'native-row', iconIdle: 'native-icon', chevronHover: 'native-chevron', leading: 'native-leading', title: 'native-title' }
+const Ut = { root: 'disclosure', row: 'native-row', iconIdle: 'native-icon', chevronHover: 'native-chevron', leading: 'native-leading', title: 'native-title' }
 const Dl = props => JSX.jsx('svg', { ...props, width: 14, height: 14, viewBox: '0 0 14 14', 'aria-hidden': true, children: JSX.jsx('path', { d: 'm4 5 3 3 3-3', fill: 'none', stroke: 'currentColor' }) })
+const y3 = Dl
 const ReasoningRow_module_css_default = { root: 'native-think', row: 'native-row', leading: 'native-leading', title: 'native-title', chevron: 'native-chevron', separator: 'native-separator', summary: 'native-summary', summaryText: 'native-summary-text', thinkBody: 'think-body' }
 const TurnProcessNodeView_module_css_default = { root: 'native-turn', label: 'native-label', chevron: 'native-chevron' }
 const ContextInjectionRow_module_css_default = { root: 'native-context', chevron: 'native-chevron', body: 'native-detail' }
 const accessibility_module_css_default = { visuallyHidden: 'visually-hidden' }
-const _deepseek_ai_dsh_client_ui_primitives = { DisclosureRow: jd, IconThinkOutline14: Dl, IconChevronDownOutline14: Dl, IconBrowseOutline16: Dl }
+const _deepseek_ai_dsh_client_ui_primitives = { DisclosureRow: Yp, IconThinkOutline14: Dl, IconChevronDownOutline14: Dl, IconBrowseOutline16: Dl }
 const OpaqueBody = ({ content }) => JSX.jsx('pre', { children: content.map(block => block.text).join('') })
 
-function jd({icon:n,title:i,open:o,expandable:l,onToggle:u,expandOnRowClick:c=!1,previewChevron:h=l,keepContentWhenOpen:m=!1,collapsedContent:C,children:g,className:w,rowClassName:_,leadingClassName:y,chevronClassName:k,titleClassName:j}){const N=l&&c,H=U=>{U.stopPropagation(),u()},z=U=>{!N||U.key!=="Enter"&&U.key!==" "||(U.preventDefault(),u())},Z=h?d.jsxs(d.Fragment,{children:[d.jsx("span",{className:Rn.iconIdle,children:n}),d.jsx(Dl,{className:Ce(k,Rn.chevronHover)})]}):n,q=o?d.jsx(Dl,{className:k}):Z;return d.jsxs("div",{className:Ce(Rn.root,w),"data-open":o||void 0,children:[d.jsxs("div",{className:Ce(Rn.row,_),"data-disclosure-row":!0,"data-expandable":N||void 0,role:N?"button":void 0,tabIndex:N?0:void 0,"aria-expanded":N?o:void 0,onClick:N?u:void 0,onKeyDown:N?z:void 0,children:[l&&!N?d.jsx("button",{type:"button",className:Ce(Rn.leading,y),"aria-expanded":o,onClick:H,children:q}):d.jsx("span",{className:Ce(Rn.leading,y),children:q}),d.jsx("span",{className:Ce(Rn.title,j),children:i}),(m||!o)&&C]}),o&&g]})}
+function Yp({icon:t,title:r,open:i,expandable:s,onToggle:a,expandOnRowClick:c=!1,previewChevron:h=s,keepContentWhenOpen:p=!1,collapsedContent:m,children:g,className:v,rowClassName:w,leadingClassName:x,chevronClassName:k,titleClassName:_}){const b=s&&c,T=F=>{F.stopPropagation(),a()},H=F=>{!b||F.key!=="Enter"&&F.key!==" "||(F.preventDefault(),a())},$=h?d.jsxs(d.Fragment,{children:[d.jsx("span",{className:Ut.iconIdle,children:t}),d.jsx(y3,{className:Ce(k,Ut.chevronHover)})]}):t,Q=i?d.jsx(y3,{className:k}):$;return d.jsxs("div",{className:Ce(Ut.root,v),"data-open":i||void 0,children:[d.jsxs("div",{className:Ce(Ut.row,w),"data-disclosure-row":!0,"data-expandable":b||void 0,role:b?"button":void 0,tabIndex:b?0:void 0,"aria-expanded":b?i:void 0,onClick:b?a:void 0,onKeyDown:b?H:void 0,children:[s&&!b?d.jsx("button",{type:"button",className:Ce(Ut.leading,x),"aria-expanded":i,onClick:T,children:Q}):d.jsx("span",{className:Ce(Ut.leading,x),children:Q}),d.jsx("span",{className:Ce(Ut.title,_),children:r}),(p||!i)&&m]}),i&&g]})}
 
 /**
 		* Apply searchable hidden state without unmounting a stable subtree.
@@ -84,7 +85,9 @@ function jd({icon:n,title:i,open:o,expandable:l,onToggle:u,expandOnRowClick:c=!1
 			return newline === -1 ? visible : visible.slice(newline + 1);
 		}
 		/**
-		* Render one assistant reasoning block as the Think disclosure row.
+		* Render one assistant reasoning block as the Think disclosure row. The
+		* collapsed summary omits double-asterisk markers; expanded content preserves
+		* the complete text.
 		* @param props.text - complete or streaming reasoning text.
 		* @param props.running - whether this block is the streaming tail.
 		* @param props.t - conversation locale seat for the running status.
@@ -92,7 +95,7 @@ function jd({icon:n,title:i,open:o,expandable:l,onToggle:u,expandOnRowClick:c=!1
 		*/
 		function ReasoningRow({ text, running, t }) {
 			const [expanded, setExpanded] = (0, react.useState)(false);
-			const summary = running ? latestLine(text) : firstLine(text);
+			const summary = (running ? latestLine(text) : firstLine(text)).replaceAll("**", "");
 			return (0, react_jsx_runtime.jsxs)("div", {
 				className: ReasoningRow_module_css_default.root,
 				"data-variant": "think",
@@ -166,17 +169,18 @@ function jd({icon:n,title:i,open:o,expandable:l,onToggle:u,expandOnRowClick:c=!1
 /**
 		* Render one complete system prompt as a collapsed disclosure whose expanded
 		* body is the same opaque context chrome: 141px code-block scrollport and
-		* model-facing text with its real line breaks.
-		* @param props - Complete prompt text and the locale seat.
+		* model-facing text with its real line breaks. An in-history update uses the
+		* same row under its own title.
+		* @param props - Complete prompt text, whether it is an update, and the locale seat.
 		* @returns The system-prompt disclosure row.
 		*/
-		function SystemPromptRow({ text, t }) {
+		function SystemPromptRow({ text, update = false, t }) {
 			const [open, setOpen] = (0, react.useState)(false);
 			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.DisclosureRow, {
 				className: ContextInjectionRow_module_css_default.root,
 				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBrowseOutline16, { size: 14 }),
 				chevronClassName: ContextInjectionRow_module_css_default.chevron,
-				title: t("message.systemPrompt"),
+				title: t(update ? "message.systemPromptUpdate" : "message.systemPrompt"),
 				open,
 				expandable: true,
 				expandOnRowClick: true,
@@ -201,8 +205,10 @@ function jd({icon:n,title:i,open:o,expandable:l,onToggle:u,expandOnRowClick:c=!1
 		const SystemPromptNodeView = (0, react.memo)(function SystemPromptNodeView({ node, t }) {
 			return (0, react_jsx_runtime.jsx)(SystemPromptRow, {
 				text: node.data.text,
+				update: node.data.update === true,
 				t
 			});
 		});
 
-export { jd as NativeDisclosureRow, ReasoningRow as NativeReasoningRow, TurnProcessNodeView as NativeTurnProcess, SystemPromptRow as NativeSystemPrompt, useSearchableHidden }
+export const nativeHostVersion = '0.1.5-rc.2'
+export { Yp as NativeDisclosureRow, ReasoningRow as NativeReasoningRow, TurnProcessNodeView as NativeTurnProcess, SystemPromptRow as NativeSystemPrompt, useSearchableHidden }

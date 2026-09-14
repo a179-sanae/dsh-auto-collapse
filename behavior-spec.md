@@ -55,4 +55,4 @@
 
 ## 验证
 
-纯分组规则使用 Node 测试。DOM、CSS、真实 observer、原生组件生命周期、搜索、焦点、异步设置与几何通过 React/Chromium 验收。测试原生组件固定为 DSH 0.1.2-rc.1，并保留来源与 MIT 许可。完整后端部署另行验证。
+纯分组规则使用 Node 测试。DOM、CSS、真实 observer、原生组件生命周期、搜索、焦点、异步设置与几何通过 React/Chromium 验收。测试原生组件固定为 DSH 0.1.5-rc.2；pwsh 失败与重试使用官方工具渲染 bundle 和终端组件，并保留来源、SHA-256 与 MIT 许可。完整后端部署另行验证。

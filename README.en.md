@@ -40,7 +40,7 @@ The optional status-text setting remains available under Settings → Plugins �
 
 | Plugin | Verified DSH |
 |---|---|
-| 0.2.x | 0.1.2-rc.1; browser tests include its native widget code |
+| 0.2.x | 0.1.2-rc.1; 0.1.5-rc.2 (current browser component fixture) |
 | 0.1.8 | 0.1.2-rc.1, legacy implementation |
 | ≤ 0.1.6 | 0.1.1.x |
 
@@ -87,7 +87,7 @@ npm run package        # complete tarball in artifacts/
 
 Build after source changes before standalone browser testing or refreshing the preview. `npm run check` runs typechecking, a fresh build, unit tests, browser tests and package smoke tests.
 
-Browser tests use real React, captured native widget implementations and the current client bundle. They cover mixed groups, inline prose boundaries, native turns, details, search, focus, SVG, recovery, settings and 100/1,000/5,000 historical nodes. The complete suite includes a 30-second idle check. Fixtures use synthetic content without personal sessions or credentials; they do not validate an entire backend deployment.
+Browser tests use real React, captured DSH 0.1.5-rc.2 widget implementations and the current client bundle. They cover mixed groups, inline prose boundaries, native turns, details, search, focus, SVG, recovery, settings and 100/1,000/5,000 historical nodes. The pwsh cases run the official Tool renderer bundle and terminal component, covering failed retries, error-body transitions and missing call heads. The complete suite includes a 30-second idle check. Fixtures use synthetic content without personal sessions or credentials; they do not validate an entire backend deployment. See the [fixture notes](test/fixtures/README.md).
 
 The implementation separates host recognition, ordered work modeling, pure grouping/state, summaries, DOM rendering, scheduling and optional status text. It never copies message bodies, reparents native nodes, replaces the host renderer, infers a final answer, cleans arbitrary empty elements or writes the main scroll position.
 

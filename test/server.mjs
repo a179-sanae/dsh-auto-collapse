@@ -10,7 +10,8 @@ const fixture = await build({ entryPoints: [join(here, 'fixtures/app.jsx')], bun
 const port = Number(process.env.DSH_TEST_PORT ?? 43190)
 createServer((request, response) => {
   const path = new URL(request.url ?? '/', 'http://localhost').pathname
-  const file = path === '/client.js' ? join(root, 'lib/client.js') : path === '/' ? join(here, 'fixtures/index.html') : null
+  if (path === '/favicon.ico') { response.writeHead(204).end(); return }
+  const file = path === '/client.js' ? join(root, 'lib/client.js') : path === '/native-tool.js' ? join(here, 'fixtures/native-tool.js') : path === '/' ? join(here, 'fixtures/index.html') : null
   if (path === '/fixture.js') { response.writeHead(200, { 'Content-Type': 'text/javascript' }); response.end(fixture.outputFiles[0].contents); return }
   if (file === null) { response.writeHead(404).end(); return }
   response.writeHead(200, { 'Content-Type': path.endsWith('.js') ? 'text/javascript' : 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
